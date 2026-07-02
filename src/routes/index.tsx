@@ -127,6 +127,30 @@ function AttendancePage() {
   const [customPresets, setCustomPresets] = useState<PresetTimetable[]>([]);
   const skipNextSaveRef = useRef(true);
 
+  // ---- Undo stack (last 25 snapshots) ----
+  const undoStackRef = useRef<{ state: AppState; label: string }[]>([]);
+  const [toast, setToast] = useState<{ label: string; id: number } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const captureUndo = useCallback((label: string) => {
+    setState((prev) => {
+      undoStackRef.current.push({ state: prev, label });
+      if (undoStackRef.current.length > 25) undoStackRef.current.shift();
+      return prev;
+    });
+    const id = Date.now();
+    setToast({ label, id });
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast((t) => (t?.id === id ? null : t)), 5000);
+  }, []);
+
+  const performUndo = useCallback(() => {
+    const entry = undoStackRef.current.pop();
+    if (!entry) return;
+    setState(entry.state);
+    setToast(null);
+  }, []);
+
   useEffect(() => {
     if (authLoading) return;
     let cancelled = false;
