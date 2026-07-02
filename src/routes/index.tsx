@@ -578,7 +578,7 @@ function NumberField({ label, value, onChange, max }: { label: string; value: nu
    ============================================================ */
 function DetailedTracker({
   detailed, setDetailed, applyPresetById, allPresets, customPresets,
-  onSaveCustomPreset, onDeleteCustomPreset,
+  onSaveCustomPreset, onDeleteCustomPreset, captureUndo,
 }: {
   detailed: DetailedData;
   setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
@@ -587,6 +587,7 @@ function DetailedTracker({
   customPresets: PresetTimetable[];
   onSaveCustomPreset: (label: string) => void;
   onDeleteCustomPreset: (id: string) => void;
+  captureUndo: (label: string) => void;
 }) {
   const [tab, setTab] = useState<"setup" | "log">("setup");
 
