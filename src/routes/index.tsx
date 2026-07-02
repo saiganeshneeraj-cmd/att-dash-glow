@@ -412,8 +412,6 @@ function Header({
               {m === "quick" ? "Quick" : m === "history" ? "History" : "Timetable"}
             </button>
           ))}
-            </button>
-          ))}
         </div>
 
         <button onClick={onExport} title="Download backup"
