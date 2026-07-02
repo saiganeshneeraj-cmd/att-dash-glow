@@ -11,7 +11,7 @@ export const Route = createFileRoute("/")({
 /* ============================================================
    Data model
    ============================================================ */
-type Mode = "quick" | "detailed";
+type Mode = "quick" | "detailed" | "history";
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat";
 const DAYS: DayKey[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DOW_TO_DAY: Record<number, DayKey | undefined> = { 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
