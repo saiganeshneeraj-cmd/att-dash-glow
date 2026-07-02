@@ -220,3 +220,37 @@
   animation: scanline-move 9s linear infinite;
   filter: blur(6px);
 }
+
+/* Premium 3D tilt on hover */
+.tilt-3d {
+  transform-style: preserve-3d;
+  transition: transform 320ms cubic-bezier(0.2,0.9,0.3,1.2), box-shadow 320ms, filter 200ms;
+  will-change: transform;
+  position: relative;
+}
+.tilt-3d:hover {
+  transform: perspective(900px) rotateX(3deg) rotateY(-3deg) translateY(-3px) scale(1.015);
+  filter: brightness(1.05);
+}
+.tilt-3d::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(140deg, color-mix(in oklab, white 12%, transparent) 0%, transparent 45%);
+  pointer-events: none;
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+}
+
+/* Big tap target press feedback */
+.press-card { transition: transform 140ms ease, filter 140ms ease, box-shadow 220ms; }
+.press-card:active { transform: scale(0.97); filter: brightness(1.12); }
+
+/* Pulsing nudge for the "next step" CTA */
+@keyframes nudge-glow {
+  0%,100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--neon-cyan) 55%, transparent); }
+  50%     { box-shadow: 0 0 0 14px color-mix(in oklab, var(--neon-cyan) 0%, transparent); }
+}
+.animate-nudge { animation: nudge-glow 2.2s ease-out infinite; }
+
