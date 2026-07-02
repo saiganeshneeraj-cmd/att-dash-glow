@@ -332,6 +332,7 @@ function AttendancePage() {
           mode={mode} setMode={setMode} hydrated={hydrated}
           user={user} syncStatus={syncStatus}
           onExport={exportData} onImport={importData}
+          state={state}
         />
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
