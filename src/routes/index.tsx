@@ -14,7 +14,6 @@ export const Route = createFileRoute("/")({
 type Mode = "quick" | "detailed";
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat";
 const DAYS: DayKey[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_TO_DOW: Record<DayKey, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 const DOW_TO_DAY: Record<number, DayKey | undefined> = { 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
 
 type Timetable = Record<DayKey, string[]>;
@@ -32,6 +31,7 @@ interface DetailedData {
 interface AppState { mode: Mode; quick: QuickData; detailed: DetailedData; }
 
 const LS_KEY = "attendedge_v3";
+const LS_CUSTOM_PRESETS = "attendedge_custom_presets_v1";
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const DEFAULT_PERIODS = [
@@ -90,6 +90,17 @@ function loadLocal(): AppState | null {
   } catch { return null; }
 }
 
+function loadCustomPresets(): PresetTimetable[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(LS_CUSTOM_PRESETS);
+    return raw ? (JSON.parse(raw) as PresetTimetable[]) : [];
+  } catch { return []; }
+}
+function saveCustomPresets(list: PresetTimetable[]) {
+  try { window.localStorage.setItem(LS_CUSTOM_PRESETS, JSON.stringify(list)); } catch {}
+}
+
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const formatLongDate = (d: Date) => `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
@@ -101,12 +112,7 @@ export function applyPreset(state: AppState, preset: PresetTimetable): AppState 
   return {
     ...state,
     mode: "detailed",
-    detailed: {
-      ...state.detailed,
-      periods: [...preset.periods],
-      timetable: tt,
-      presetId: preset.id,
-    },
+    detailed: { ...state.detailed, periods: [...preset.periods], timetable: tt, presetId: preset.id },
   };
 }
 
@@ -118,9 +124,9 @@ function AttendancePage() {
   const [state, setState] = useState<AppState>(defaultState);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [customPresets, setCustomPresets] = useState<PresetTimetable[]>([]);
   const skipNextSaveRef = useRef(true);
 
-  // Load: prefer cloud if signed in, else localStorage
   useEffect(() => {
     if (authLoading) return;
     let cancelled = false;
@@ -140,7 +146,6 @@ function AttendancePage() {
             detailed: normalizeDetailed(s.detailed),
           });
         } else {
-          // First cloud login — migrate localStorage up
           const local = loadLocal();
           if (local) setState(local);
         }
@@ -148,19 +153,18 @@ function AttendancePage() {
         const local = loadLocal();
         if (local) setState(local);
       }
+      setCustomPresets(loadCustomPresets());
       skipNextSaveRef.current = true;
       setHydrated(true);
     })();
     return () => { cancelled = true; };
   }, [user, authLoading]);
 
-  // Persist locally always
   useEffect(() => {
     if (!hydrated) return;
     try { window.localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
   }, [state, hydrated]);
 
-  // Debounced cloud sync when signed in
   useEffect(() => {
     if (!hydrated || !user) return;
     if (skipNextSaveRef.current) { skipNextSaveRef.current = false; return; }
@@ -183,15 +187,74 @@ function AttendancePage() {
     (updater: DetailedData | ((d: DetailedData) => DetailedData)) =>
       setState((s) => ({ ...s, detailed: typeof updater === "function" ? (updater as any)(s.detailed) : updater })), []);
 
+  const allPresets = useMemo(() => [...PRESETS, ...customPresets], [customPresets]);
   const applyPresetById = useCallback((id: string) => {
-    const p = PRESETS.find((x) => x.id === id);
+    const p = allPresets.find((x) => x.id === id);
     if (!p) return;
     setState((s) => applyPreset(s, p));
+  }, [allPresets]);
+
+  const saveCurrentAsPreset = useCallback((label: string) => {
+    const d = state.detailed;
+    const newPreset: PresetTimetable = {
+      id: `custom-${Date.now()}`,
+      label: label.trim() || "My Section",
+      meta: "Custom preset",
+      periods: [...d.periods],
+      rows: {
+        Mon: [...d.timetable.Mon], Tue: [...d.timetable.Tue], Wed: [...d.timetable.Wed],
+        Thu: [...d.timetable.Thu], Fri: [...d.timetable.Fri], Sat: [...d.timetable.Sat],
+      },
+    };
+    const next = [...customPresets, newPreset];
+    setCustomPresets(next);
+    saveCustomPresets(next);
+    setState((s) => ({ ...s, detailed: { ...s.detailed, presetId: newPreset.id } }));
+  }, [state.detailed, customPresets]);
+
+  const deleteCustomPreset = useCallback((id: string) => {
+    const next = customPresets.filter((p) => p.id !== id);
+    setCustomPresets(next);
+    saveCustomPresets(next);
+  }, [customPresets]);
+
+  const exportData = useCallback(() => {
+    const blob = new Blob(
+      [JSON.stringify({ version: 3, exportedAt: new Date().toISOString(), state, customPresets }, null, 2)],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `attendedge-backup-${todayISO()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }, [state, customPresets]);
+
+  const importData = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (parsed.state) {
+          const s = parsed.state as AppState;
+          setState({
+            mode: s.mode ?? "detailed",
+            quick: s.quick ?? { total: 0, attended: 0 },
+            detailed: normalizeDetailed(s.detailed),
+          });
+        }
+        if (Array.isArray(parsed.customPresets)) {
+          setCustomPresets(parsed.customPresets);
+          saveCustomPresets(parsed.customPresets);
+        }
+      } catch { alert("Invalid backup file."); }
+    };
+    reader.readAsText(file);
   }, []);
 
   const { mode, quick, detailed } = state;
 
-  /* ---- Totals ---- */
   const { total, attended } = useMemo(() => {
     if (mode === "quick") {
       const t = Math.max(0, Math.floor(quick.total || 0));
@@ -231,7 +294,6 @@ function AttendancePage() {
 
   return (
     <main className="relative min-h-screen w-full overflow-hidden px-4 py-6 sm:px-6 sm:py-10">
-      {/* Ambient neon blobs */}
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="animate-float absolute -left-32 top-10 h-96 w-96 rounded-full opacity-40 blur-3xl" style={{ background: "var(--neon-cyan)" }} />
         <div className="animate-float absolute -right-40 top-1/3 h-[28rem] w-[28rem] rounded-full opacity-30 blur-3xl" style={{ background: "var(--neon-magenta)", animationDelay: "-4s" }} />
@@ -243,6 +305,7 @@ function AttendancePage() {
         <Header
           mode={mode} setMode={setMode} hydrated={hydrated}
           user={user} syncStatus={syncStatus}
+          onExport={exportData} onImport={importData}
         />
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
@@ -254,7 +317,14 @@ function AttendancePage() {
           {mode === "quick" ? (
             <QuickForm quick={quick} setQuick={setQuick} />
           ) : (
-            <DetailedTracker detailed={detailed} setDetailed={setDetailed} applyPresetById={applyPresetById} />
+            <DetailedTracker
+              detailed={detailed} setDetailed={setDetailed}
+              applyPresetById={applyPresetById}
+              allPresets={allPresets}
+              customPresets={customPresets}
+              onSaveCustomPreset={saveCurrentAsPreset}
+              onDeleteCustomPreset={deleteCustomPreset}
+            />
           )}
         </section>
 
@@ -270,12 +340,14 @@ function AttendancePage() {
    Header
    ============================================================ */
 function Header({
-  mode, setMode, hydrated, user, syncStatus,
+  mode, setMode, hydrated, user, syncStatus, onExport, onImport,
 }: {
   mode: Mode; setMode: (m: Mode) => void; hydrated: boolean;
   user: ReturnType<typeof useAuth>["user"]; syncStatus: string;
+  onExport: () => void; onImport: (f: File) => void;
 }) {
   const [today, setToday] = useState<string>("");
+  const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => { setToday(formatLongDate(new Date())); }, []);
   const initial = user?.email?.[0]?.toUpperCase() ?? "?";
 
@@ -299,7 +371,7 @@ function Header({
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <div className="inline-flex rounded-full border border-border bg-card p-1 backdrop-blur-md">
           {(["detailed", "quick"] as Mode[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
@@ -311,6 +383,17 @@ function Header({
             </button>
           ))}
         </div>
+
+        <button onClick={onExport} title="Download backup"
+          className="rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-cyan)]">
+          ↓ Export
+        </button>
+        <button onClick={() => fileRef.current?.click()} title="Restore backup"
+          className="rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-magenta)]">
+          ↑ Import
+        </button>
+        <input ref={fileRef} type="file" accept="application/json" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.currentTarget.value = ""; }} />
 
         {user ? (
           <div className="group relative">
@@ -350,7 +433,7 @@ const HeroRing = memo(function HeroRing({ pct, statusText, statusColor, total, a
   const dash = (clamped / 100) * c;
 
   return (
-    <div className="glass-neon animate-pop-in flex flex-col items-center justify-center overflow-hidden p-6 sm:p-8">
+    <div className="glass-neon tilt-3d animate-pop-in flex flex-col items-center justify-center overflow-hidden p-6 sm:p-8">
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90 animate-spin-slow" style={{ filter: `drop-shadow(0 0 14px ${statusColor})` }}>
           <defs>
@@ -414,7 +497,7 @@ function InsightsPanel({ status, target, safe, total }: { status: string; target
 
 function InsightCard({ active, color, eyebrow, big, unit, detail }: { active: boolean; color: string; eyebrow: string; big: number; unit: string; detail: string }) {
   return (
-    <div className="glass relative overflow-hidden p-6 transition-all hover-lift"
+    <div className="glass tilt-3d relative overflow-hidden p-6"
       style={{
         opacity: active ? 1 : 0.55,
         borderColor: active ? `color-mix(in oklab, ${color} 55%, transparent)` : undefined,
@@ -464,11 +547,16 @@ function NumberField({ label, value, onChange, max }: { label: string; value: nu
    Detailed Tracker
    ============================================================ */
 function DetailedTracker({
-  detailed, setDetailed, applyPresetById,
+  detailed, setDetailed, applyPresetById, allPresets, customPresets,
+  onSaveCustomPreset, onDeleteCustomPreset,
 }: {
   detailed: DetailedData;
   setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
   applyPresetById: (id: string) => void;
+  allPresets: PresetTimetable[];
+  customPresets: PresetTimetable[];
+  onSaveCustomPreset: (label: string) => void;
+  onDeleteCustomPreset: (id: string) => void;
 }) {
   const [tab, setTab] = useState<"setup" | "log">("setup");
 
@@ -477,21 +565,33 @@ function DetailedTracker({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xl font-semibold">Weekly Timetable</h2>
-          <p className="text-xs text-muted-foreground sm:text-sm">Load your section preset or edit any cell.</p>
+          <p className="text-xs text-muted-foreground sm:text-sm">
+            {tab === "setup"
+              ? "Step 1: load a preset or fill your grid, then head to Daily Log."
+              : "Step 2: tap any class to mark Attended / Missed."}
+          </p>
         </div>
         <div className="inline-flex shrink-0 rounded-full border border-border bg-background/40 p-1">
           {(["setup", "log"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${tab === t ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               style={tab === t ? { background: "var(--gradient-primary)" } : undefined}>
-              {t === "setup" ? "Setup" : "Daily Log"}
+              {t === "setup" ? "1 · Setup" : "2 · Daily Log"}
             </button>
           ))}
         </div>
       </div>
 
       {tab === "setup" ? (
-        <SetupPanel detailed={detailed} setDetailed={setDetailed} applyPresetById={applyPresetById} />
+        <SetupPanel
+          detailed={detailed} setDetailed={setDetailed}
+          applyPresetById={applyPresetById}
+          allPresets={allPresets}
+          customPresets={customPresets}
+          onSaveCustomPreset={onSaveCustomPreset}
+          onDeleteCustomPreset={onDeleteCustomPreset}
+          onGoToLog={() => setTab("log")}
+        />
       ) : (
         <LogPanel detailed={detailed} setDetailed={setDetailed} />
       )}
@@ -500,25 +600,53 @@ function DetailedTracker({
 }
 
 /* ---------- Preset picker ---------- */
-function PresetPicker({ activeId, onPick }: { activeId?: string; onPick: (id: string) => void }) {
+function PresetPicker({
+  activeId, onPick, allPresets, customPresets, onSaveCurrent, onDelete,
+}: {
+  activeId?: string;
+  onPick: (id: string) => void;
+  allPresets: PresetTimetable[];
+  customPresets: PresetTimetable[];
+  onSaveCurrent: (label: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const customIds = new Set(customPresets.map((p) => p.id));
   return (
     <div className="mt-4 rounded-2xl border border-border/70 bg-background/30 p-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Section presets</div>
-        <div className="text-[10px] text-muted-foreground/70">One tap loads the full week</div>
+        <button
+          onClick={() => {
+            const name = window.prompt("Name this section (e.g. '3/4 CSE Sec B'):");
+            if (name && name.trim()) onSaveCurrent(name);
+          }}
+          className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-primary transition hover:bg-primary/20">
+          + Save current
+        </button>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        {PRESETS.map((p) => {
+        {allPresets.map((p) => {
           const active = activeId === p.id;
+          const isCustom = customIds.has(p.id);
           return (
-            <button key={p.id} onClick={() => onPick(p.id)}
-              className={`group relative rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-all ${
-                active ? "border-transparent text-primary-foreground" : "border-border bg-background/50 text-foreground hover:border-primary"
-              }`}
-              style={active ? { background: "var(--gradient-primary)", boxShadow: "0 0 24px -8px var(--neon-cyan)" } : undefined}>
-              <div>{p.label}</div>
-              {p.meta && <div className={`text-[10px] font-normal ${active ? "opacity-80" : "text-muted-foreground"}`}>{p.meta}</div>}
-            </button>
+            <div key={p.id} className="relative">
+              <button onClick={() => onPick(p.id)}
+                className={`press-card group relative rounded-xl border px-3 py-2 pr-7 text-left text-xs font-semibold transition-all ${
+                  active ? "border-transparent text-primary-foreground" : "border-border bg-background/50 text-foreground hover:border-primary"
+                }`}
+                style={active ? { background: "var(--gradient-primary)", boxShadow: "0 0 24px -8px var(--neon-cyan)" } : undefined}>
+                <div>{p.label}</div>
+                {p.meta && <div className={`text-[10px] font-normal ${active ? "opacity-80" : "text-muted-foreground"}`}>{p.meta}</div>}
+              </button>
+              {isCustom && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete preset "${p.label}"?`)) onDelete(p.id); }}
+                  title="Delete custom preset"
+                  className="absolute -right-1.5 -top-1.5 h-5 w-5 rounded-full border border-border bg-background text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive">
+                  ✕
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
@@ -528,11 +656,17 @@ function PresetPicker({ activeId, onPick }: { activeId?: string; onPick: (id: st
 
 /* ---------- Setup ---------- */
 function SetupPanel({
-  detailed, setDetailed, applyPresetById,
+  detailed, setDetailed, applyPresetById, allPresets, customPresets,
+  onSaveCustomPreset, onDeleteCustomPreset, onGoToLog,
 }: {
   detailed: DetailedData;
   setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
   applyPresetById: (id: string) => void;
+  allPresets: PresetTimetable[];
+  customPresets: PresetTimetable[];
+  onSaveCustomPreset: (label: string) => void;
+  onDeleteCustomPreset: (id: string) => void;
+  onGoToLog: () => void;
 }) {
   const setCell = useCallback((day: DayKey, idx: number, val: string) => {
     setDetailed((d) => {
@@ -558,6 +692,11 @@ function SetupPanel({
   const resetToDefault = () =>
     setDetailed((d) => ({ ...d, periods: [...DEFAULT_PERIODS], timetable: emptyTimetable(DEFAULT_PERIODS.length), presetId: undefined }));
 
+  const hasContent = useMemo(
+    () => DAYS.some((day) => detailed.timetable[day].some((s) => s.trim())),
+    [detailed.timetable],
+  );
+
   return (
     <div className="mt-5 animate-fade-in">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -577,9 +716,15 @@ function SetupPanel({
         </div>
       </div>
 
-      <PresetPicker activeId={detailed.presetId} onPick={applyPresetById} />
+      <PresetPicker
+        activeId={detailed.presetId}
+        onPick={applyPresetById}
+        allPresets={allPresets}
+        customPresets={customPresets}
+        onSaveCurrent={onSaveCustomPreset}
+        onDelete={onDeleteCustomPreset}
+      />
 
-      {/* Timetable grid */}
       <div className="mt-5 -mx-2 overflow-x-auto pb-3 sm:mx-0">
         <div className="min-w-[720px] px-2 sm:px-0">
           <div className="grid gap-1.5"
@@ -605,6 +750,27 @@ function SetupPanel({
       <p className="mt-3 text-[11px] text-muted-foreground">
         Tip: For a subject that spans multiple periods (lab), just repeat its name across those cells — each period counts as one class.
       </p>
+
+      {/* Big "Next step" CTA — removes the confusion after setup */}
+      <div className="mt-6 flex flex-col items-center gap-2 rounded-2xl border border-primary/30 bg-background/40 p-5 text-center sm:flex-row sm:justify-between sm:text-left">
+        <div>
+          <div className="text-sm font-semibold text-foreground">
+            {hasContent ? "Your timetable is ready." : "Load a preset or fill your grid above."}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {hasContent
+              ? "Now open Daily Log to mark each class as Attended or Missed."
+              : "As soon as it has subjects, this button lights up."}
+          </div>
+        </div>
+        <button
+          onClick={onGoToLog}
+          disabled={!hasContent}
+          className={`press-card rounded-full px-5 py-3 text-sm font-bold text-primary-foreground transition ${hasContent ? "animate-nudge" : "opacity-40"}`}
+          style={{ background: "var(--gradient-primary)", boxShadow: "0 0 24px -6px var(--neon-magenta)" }}>
+          Go to Daily Log →
+        </button>
+      </div>
     </div>
   );
 }
@@ -633,7 +799,7 @@ function RowFragment({ day, row, onChange }: { day: DayKey; row: string[]; onCha
 }
 
 /* ============================================================
-   Daily Log — memoized rows fix marking lag
+   Daily Log
    ============================================================ */
 function LogPanel({
   detailed, setDetailed,
@@ -661,7 +827,6 @@ function LogPanel({
     return arr.reverse();
   }, [detailed.startDate, detailed.timetable]);
 
-  // Stable handlers — functional setters so React.memo children never see new closures
   const setClassState = useCallback((iso: string, idx: number, st: "attended" | "missed" | "cancelled") => {
     setDetailed((d) => ({ ...d, states: { ...d.states, [`${iso}__${idx}`]: st } }));
   }, [setDetailed]);
@@ -670,6 +835,18 @@ function LogPanel({
     setDetailed((d) => {
       const has = d.holidays.includes(iso);
       return { ...d, holidays: has ? d.holidays.filter((x) => x !== iso) : [...d.holidays, iso] };
+    });
+  }, [setDetailed]);
+
+  const markDay = useCallback((iso: string, day: DayKey, st: "attended" | "missed") => {
+    setDetailed((d) => {
+      const row = d.timetable[day];
+      const next = { ...d.states };
+      row.forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        next[`${iso}__${idx}`] = st;
+      });
+      return { ...d, states: next };
     });
   }, [setDetailed]);
 
@@ -690,13 +867,14 @@ function LogPanel({
           periods={detailed.periods}
           states={detailed.states}
           onSetState={setClassState}
-          onToggleHoliday={toggleHoliday} />
+          onToggleHoliday={toggleHoliday}
+          onMarkDay={markDay} />
       ))}
     </div>
   );
 }
 
-/* --- Memoized DayCard: only the toggled day re-renders --- */
+/* --- Memoized DayCard --- */
 type DayCardProps = {
   iso: string; day: DayKey; label: string;
   isHoliday: boolean;
@@ -704,10 +882,11 @@ type DayCardProps = {
   states: ClassState;
   onSetState: (iso: string, idx: number, st: "attended" | "missed" | "cancelled") => void;
   onToggleHoliday: (iso: string) => void;
+  onMarkDay: (iso: string, day: DayKey, st: "attended" | "missed") => void;
 };
 
 const DayCard = memo(function DayCard({
-  iso, day, label, isHoliday, row, periods, states, onSetState, onToggleHoliday,
+  iso, day, label, isHoliday, row, periods, states, onSetState, onToggleHoliday, onMarkDay,
 }: DayCardProps) {
   return (
     <div className="animate-fade-in">
@@ -722,10 +901,20 @@ const DayCard = memo(function DayCard({
             </span>
           )}
         </div>
-        <button onClick={() => onToggleHoliday(iso)}
-          className="rounded-full border border-border bg-background/40 px-3 py-1 text-[11px] font-medium text-muted-foreground transition hover:text-foreground hover:border-primary">
-          {isHoliday ? "Unmark Holiday" : "Mark as Holiday"}
-        </button>
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={() => onMarkDay(iso, day, "attended")} disabled={isHoliday}
+            className="rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-semibold text-success transition hover:bg-success/20 disabled:opacity-40">
+            ✓ All present
+          </button>
+          <button onClick={() => onMarkDay(iso, day, "missed")} disabled={isHoliday}
+            className="rounded-full border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-[11px] font-semibold text-destructive transition hover:bg-destructive/20 disabled:opacity-40">
+            ✕ All absent
+          </button>
+          <button onClick={() => onToggleHoliday(iso)}
+            className="rounded-full border border-border bg-background/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition hover:text-foreground hover:border-primary">
+            {isHoliday ? "Unmark Holiday" : "Holiday"}
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-2"
@@ -760,34 +949,43 @@ const DayCard = memo(function DayCard({
           const attended = st === "attended";
           const color = attended ? "var(--color-success)" : "var(--color-danger)";
           return (
-            <div key={idx}
-              className="group relative overflow-hidden rounded-xl border p-3 text-sm font-medium transition-all hover-lift"
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onSetState(iso, idx, attended ? "missed" : "attended")}
+              className="press-card tilt-3d group relative overflow-hidden rounded-xl border p-3 text-left text-sm font-medium"
               style={{
-                borderColor: `color-mix(in oklab, ${color} 45%, transparent)`,
-                backgroundColor: `color-mix(in oklab, ${color} 12%, transparent)`,
-                color, boxShadow: `0 0 20px -10px ${color}`,
+                borderColor: `color-mix(in oklab, ${color} 55%, transparent)`,
+                backgroundColor: `color-mix(in oklab, ${color} 14%, transparent)`,
+                color,
+                boxShadow: `0 0 24px -10px ${color}, inset 0 0 0 1px color-mix(in oklab, ${color} 25%, transparent)`,
               }}>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] uppercase tracking-widest opacity-80">{periods[idx]}</span>
-                <button onClick={() => onSetState(iso, idx, "cancelled")}
-                  aria-label="Cancel this class" title="Cancelled / removed"
-                  className="rounded-md border border-current/30 px-1.5 text-[10px] opacity-70 transition hover:opacity-100">
+                <span
+                  role="button"
+                  aria-label="Cancel this class"
+                  title="Cancel this class"
+                  onClick={(e) => { e.stopPropagation(); onSetState(iso, idx, "cancelled"); }}
+                  className="cursor-pointer rounded-md border border-current/30 px-1.5 text-[10px] opacity-70 transition hover:opacity-100">
                   ✕
-                </button>
+                </span>
               </div>
-              <button onClick={() => onSetState(iso, idx, attended ? "missed" : "attended")}
-                className="mt-1 flex w-full items-center gap-2 text-left">
-                <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}` }} />
-                <span className="truncate">{subj}</span>
-              </button>
-              <div className="mt-1 text-[10px] opacity-80">{attended ? "Attended · tap to toggle" : "Missed · tap to toggle"}</div>
-            </div>
+              <div className="mt-1 flex items-center gap-2">
+                <span
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
+                  style={{ backgroundColor: color, color: "oklch(0.14 0.03 275)", boxShadow: `0 0 10px ${color}` }}>
+                  {attended ? "✓" : "✕"}
+                </span>
+                <span className="truncate text-base">{subj}</span>
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-widest opacity-80">
+                {attended ? "Attended · tap to mark absent" : "Absent · tap to mark present"}
+              </div>
+            </button>
           );
         })}
       </div>
     </div>
   );
 });
-
-// avoid unused-var warning
-void DAY_TO_DOW;
