@@ -341,6 +341,8 @@ function AttendancePage() {
         <section className="mt-6 animate-fade-in">
           {mode === "quick" ? (
             <QuickForm quick={quick} setQuick={setQuick} />
+          ) : mode === "history" ? (
+            <HistoryView detailed={detailed} />
           ) : (
             <DetailedTracker
               detailed={detailed} setDetailed={setDetailed}
@@ -349,6 +351,7 @@ function AttendancePage() {
               customPresets={customPresets}
               onSaveCustomPreset={saveCurrentAsPreset}
               onDeleteCustomPreset={deleteCustomPreset}
+              captureUndo={captureUndo}
             />
           )}
         </section>
@@ -357,6 +360,8 @@ function AttendancePage() {
           {user ? "Synced to your account" : "Saved locally"} · Threshold: 75%
         </footer>
       </div>
+
+      <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
     </main>
   );
 }
