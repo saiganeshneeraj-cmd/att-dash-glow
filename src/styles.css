@@ -39,8 +39,8 @@
   --color-neon-cyan: var(--neon-cyan);
   --color-neon-magenta: var(--neon-magenta);
   --color-neon-lime: var(--neon-lime);
-  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+ --font-display: "Google Sans", "Poppins", "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+ --font-sans: "Poppins", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
