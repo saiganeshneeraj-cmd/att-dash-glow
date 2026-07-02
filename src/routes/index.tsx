@@ -1363,6 +1363,52 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
           <SummaryTile label="Holidays" value={totals.holiday} color="var(--neon-magenta)" />
         </div>
 
+        {/* Attendance Alerts */}
+        {(() => {
+          const risky = perSubject.filter((p) => p.total > 0 && p.pct < 75);
+          const warn = perSubject.filter((p) => p.total > 0 && p.pct >= 75 && p.pct < 80);
+          if (risky.length === 0 && warn.length === 0) return null;
+          return (
+            <div className="mt-6">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--color-danger)" }}>
+                ⚠ Attendance alerts
+              </h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {risky.map((p) => {
+                  const needed = Math.max(0, Math.ceil(3 * p.total - 4 * p.attended));
+                  return (
+                    <div key={p.subject} className="flex items-center justify-between rounded-xl border p-3"
+                      style={{
+                        borderColor: "color-mix(in oklab, var(--color-danger) 45%, transparent)",
+                        background: "color-mix(in oklab, var(--color-danger) 10%, transparent)",
+                        boxShadow: "0 0 24px -14px var(--color-danger)",
+                      }}>
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">{p.subject}</div>
+                        <div className="text-xs text-muted-foreground">Attend {needed} more in a row to reach 75%</div>
+                      </div>
+                      <div className="text-xl font-bold" style={{ color: "var(--color-danger)", textShadow: "0 0 12px var(--color-danger)" }}>{p.pct}%</div>
+                    </div>
+                  );
+                })}
+                {warn.map((p) => (
+                  <div key={p.subject} className="flex items-center justify-between rounded-xl border p-3"
+                    style={{
+                      borderColor: "color-mix(in oklab, var(--color-warning) 45%, transparent)",
+                      background: "color-mix(in oklab, var(--color-warning) 8%, transparent)",
+                    }}>
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{p.subject}</div>
+                      <div className="text-xs text-muted-foreground">Cutting it close — stay above 75%</div>
+                    </div>
+                    <div className="text-xl font-bold" style={{ color: "var(--color-warning)" }}>{p.pct}%</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Per subject */}
         <h3 className="mt-6 mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Per subject</h3>
         {perSubject.length === 0 ? (
@@ -1375,6 +1421,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
               <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Subject</th>
+                  <th className="px-3 py-2">Trend</th>
                   <th className="px-3 py-2 text-right">Attended</th>
                   <th className="px-3 py-2 text-right">Missed</th>
                   <th className="px-3 py-2 text-right">Cancelled</th>
@@ -1388,6 +1435,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
                   return (
                     <tr key={r.subject} className="border-t border-border">
                       <td className="px-3 py-2 font-medium text-foreground">{r.subject}</td>
+                      <td className="px-3 py-2"><TrendSparkline data={r.trend} color={c} /></td>
                       <td className="px-3 py-2 text-right text-foreground">{r.attended}</td>
                       <td className="px-3 py-2 text-right text-foreground">{r.missed}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{r.cancelled}</td>
@@ -1400,6 +1448,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
             </table>
           </div>
         )}
+
 
         {/* Detailed log */}
         <h3 className="mt-6 mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Full log</h3>
