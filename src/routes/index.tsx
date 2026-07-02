@@ -1514,3 +1514,36 @@ function SummaryTile({ label, value, color }: { label: string; value: number | s
   );
 }
 
+function TrendSparkline({ data, color, width = 120, height = 32 }: { data: number[]; color: string; width?: number; height?: number }) {
+  if (!data || data.length === 0) {
+    return <span className="text-[10px] text-muted-foreground">—</span>;
+  }
+  const w = width, h = height, pad = 2;
+  const n = data.length;
+  const xs = (i: number) => (n === 1 ? w / 2 : pad + (i * (w - 2 * pad)) / (n - 1));
+  const ys = (v: number) => h - pad - (Math.max(0, Math.min(100, v)) / 100) * (h - 2 * pad);
+  const path = data.map((v, i) => `${i === 0 ? "M" : "L"}${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(" ");
+  const area = `${path} L${xs(n - 1).toFixed(1)},${h - pad} L${xs(0).toFixed(1)},${h - pad} Z`;
+  const last = data[n - 1];
+  const threshY = ys(75);
+  const uid = `spk-${Math.random().toString(36).slice(2, 8)}`;
+  return (
+    <div className="flex items-center gap-2">
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+        <defs>
+          <linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <line x1="0" y1={threshY} x2={w} y2={threshY} stroke="currentColor" strokeOpacity="0.3" strokeDasharray="2 3" className="text-muted-foreground" />
+        <path d={area} fill={`url(#${uid})`} />
+        <path d={path} fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={xs(n - 1)} cy={ys(last)} r="2.5" fill={color} />
+      </svg>
+      <span className="text-[10px] font-medium tabular-nums text-muted-foreground">n={n}</span>
+    </div>
+  );
+}
+
+
