@@ -215,8 +215,9 @@ function AttendancePage() {
   const applyPresetById = useCallback((id: string) => {
     const p = allPresets.find((x) => x.id === id);
     if (!p) return;
+    captureUndo(`Loaded preset: ${p.label}`);
     setState((s) => applyPreset(s, p));
-  }, [allPresets]);
+  }, [allPresets, captureUndo]);
 
   const saveCurrentAsPreset = useCallback((label: string) => {
     const d = state.detailed;
