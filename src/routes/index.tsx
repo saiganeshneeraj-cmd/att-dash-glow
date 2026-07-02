@@ -1191,18 +1191,22 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
   }, [allEntries, from, to, statusFilter, subjectFilter]);
 
   const perSubject = useMemo(() => {
-    const map = new Map<string, { attended: number; missed: number; cancelled: number; total: number }>();
+    const map = new Map<string, { attended: number; missed: number; cancelled: number; total: number; trend: number[] }>();
     filtered.forEach((e) => {
-      const s = map.get(e.subject) ?? { attended: 0, missed: 0, cancelled: 0, total: 0 };
+      const s = map.get(e.subject) ?? { attended: 0, missed: 0, cancelled: 0, total: 0, trend: [] };
       if (e.status === "attended") { s.attended++; s.total++; }
       else if (e.status === "missed") { s.missed++; s.total++; }
       else if (e.status === "cancelled") s.cancelled++;
+      if (e.status === "attended" || e.status === "missed") {
+        s.trend.push(s.total > 0 ? Math.round((s.attended / s.total) * 1000) / 10 : 0);
+      }
       map.set(e.subject, s);
     });
     return Array.from(map.entries())
       .map(([subject, s]) => ({ subject, ...s, pct: s.total > 0 ? Math.round((s.attended / s.total) * 1000) / 10 : 0 }))
       .sort((a, b) => a.subject.localeCompare(b.subject));
   }, [filtered]);
+
 
   const totals = useMemo(() => {
     let attended = 0, missed = 0, cancelled = 0, holiday = 0;
