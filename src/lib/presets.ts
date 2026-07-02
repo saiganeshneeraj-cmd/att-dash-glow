@@ -14,19 +14,65 @@ const AIML_PERIODS = [
   "01:30-02:15", "02:15-03:00", "03:00-03:45", "03:45-04:30",
 ];
 
+// Helper: a subject that spans N periods → repeat it N times.
+const span = (subject: string, n: number) => Array(n).fill(subject);
+const row = (...blocks: [string, number][]) => blocks.flatMap(([s, n]) => span(s, n));
+
 export const PRESETS: PresetTimetable[] = [
+  {
+    id: "aiml-a-3-4",
+    label: "3/4 AIML - Sec A",
+    meta: "1st Sem · Room B-402 · w.e.f. 15-06-2026",
+    periods: [...AIML_PERIODS],
+    rows: {
+      Mon: row(["DL LAB", 4], ["NLP LAB", 4]),
+      Tue: row(["DL", 2], ["NLP", 2], ["IOT", 2], ["ES(QA)", 2]),
+      Wed: row(["OE-I", 2], ["Minors", 2], ["UIDF LAB", 4]),
+      Thu: row(["NLP", 2], ["DL", 2], ["CN", 2], ["IOT", 2]),
+      Fri: row(["FSD-2 LAB", 4], ["OE-I", 2], ["Minors", 2]),
+      Sat: row(["CN", 2], ["ES(VA)", 2], ["", 2], ["", 2]),
+    },
+  },
+  {
+    id: "aiml-b-3-4",
+    label: "3/4 AIML - Sec B",
+    meta: "1st Sem · Room C-202 · w.e.f. 15-06-2026",
+    periods: [...AIML_PERIODS],
+    rows: {
+      Mon: row(["UIDF LAB", 4], ["CN", 2], ["ES(QA)", 2]),
+      Tue: row(["NLP LAB", 4], ["NLP", 2], ["ES(VA)", 2]),
+      Wed: row(["OE-I", 2], ["Minors", 2], ["DL", 2], ["IOT", 2]),
+      Thu: row(["DL LAB", 4], ["FSD-2 LAB", 4]),
+      Fri: row(["NLP", 2], ["DL", 2], ["OE-I", 2], ["Minors", 2]),
+      Sat: row(["IOT", 2], ["CN", 2], ["", 2], ["", 2]),
+    },
+  },
   {
     id: "aiml-c-3-4",
     label: "3/4 AIML - Sec C",
-    meta: "1st Semester · Room C-204",
+    meta: "1st Sem · Room C-204",
     periods: [...AIML_PERIODS],
     rows: {
-      Mon: ["UIDF LAB", "UIDF LAB", "UIDF LAB", "UIDF LAB", "DL", "DL", "ES(VA)", "ES(VA)"],
-      Tue: ["DL", "DL", "NLP", "NLP", "NLP LAB", "NLP LAB", "NLP LAB", "NLP LAB"],
-      Wed: ["OE-I", "OE-I", "Minors", "Minors", "DL LAB", "DL LAB", "DL LAB", "DL LAB"],
-      Thu: ["CN", "CN", "IOT", "IOT", "NLP", "NLP", "ES(QA)", "ES(QA)"],
-      Fri: ["IOT", "IOT", "CN", "CN", "OE-I", "OE-I", "Minors", "Minors"],
-      Sat: ["FSD-2 LAB", "FSD-2 LAB", "FSD-2 LAB", "FSD-2 LAB", "", "", "", ""],
+      Mon: row(["UIDF LAB", 4], ["DL", 2], ["ES(VA)", 2]),
+      Tue: row(["DL", 2], ["NLP", 2], ["NLP LAB", 4]),
+      Wed: row(["OE-I", 2], ["Minors", 2], ["DL LAB", 4]),
+      Thu: row(["CN", 2], ["IOT", 2], ["NLP", 2], ["ES(QA)", 2]),
+      Fri: row(["IOT", 2], ["CN", 2], ["OE-I", 2], ["Minors", 2]),
+      Sat: row(["FSD-2 LAB", 4], ["", 2], ["", 2]),
+    },
+  },
+  {
+    id: "aiml-d-3-4",
+    label: "3/4 AIML - Sec D",
+    meta: "1st Sem · Room C-201 · w.e.f. 15-06-2026",
+    periods: [...AIML_PERIODS],
+    rows: {
+      Mon: row(["ES(VA)", 2], ["DL", 2], ["NLP", 2], ["CN", 2]),
+      Tue: row(["FSD-2 LAB", 4], ["DL", 2], ["ES(QA)", 2]),
+      Wed: row(["OE-I", 2], ["Minors", 2], ["UIDF LAB", 4]),
+      Thu: row(["NLP", 2], ["IOT", 2], ["NLP LAB", 4]),
+      Fri: row(["DL LAB", 4], ["OE-I", 2], ["Minors", 2]),
+      Sat: row(["IOT", 2], ["CN", 2], ["", 2], ["", 2]),
     },
   },
 ];
