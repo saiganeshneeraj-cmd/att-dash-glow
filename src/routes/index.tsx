@@ -372,16 +372,53 @@ function AttendancePage() {
    Header
    ============================================================ */
 function Header({
-  mode, setMode, hydrated, user, syncStatus, onExport, onImport,
+  mode, setMode, hydrated, user, syncStatus, onExport, onImport, state,
 }: {
   mode: Mode; setMode: (m: Mode) => void; hydrated: boolean;
   user: ReturnType<typeof useAuth>["user"]; syncStatus: string;
-  onExport: () => void; onImport: (f: File) => void;
+  onExport: () => void; onImport: (f: File) => void; state: AppState;
 }) {
   const [today, setToday] = useState<string>("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [busy, setBusy] = useState<null | "pdf" | "img" | "share">(null);
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setToday(formatLongDate(new Date())); }, []);
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    if (menuOpen) document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [menuOpen]);
   const initial = user?.email?.[0]?.toUpperCase() ?? "?";
+
+  const doPdf = async () => {
+    setBusy("pdf"); setMenuOpen(false);
+    try { await downloadPdfReport(state); } finally { setBusy(null); }
+  };
+  const doImg = async () => {
+    setBusy("img"); setMenuOpen(false);
+    try { await downloadImageReport(state); } finally { setBusy(null); }
+  };
+  const doShare = async () => {
+    setBusy("share"); setMenuOpen(false);
+    const text = summaryToText(computeSummary(state));
+    try {
+      if (navigator.share) {
+        try { await navigator.share({ title: "My attendance", text }); }
+        catch { await navigator.clipboard.writeText(text); setShareMsg("Copied to clipboard"); }
+      } else {
+        await navigator.clipboard.writeText(text);
+        setShareMsg("Copied to clipboard");
+      }
+    } catch { setShareMsg("Could not copy"); }
+    finally {
+      setBusy(null);
+      setTimeout(() => setShareMsg(null), 2200);
+    }
+  };
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-4">
