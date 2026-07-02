@@ -22,7 +22,7 @@ export const PRESETS: PresetTimetable[] = [
   {
     id: "aiml-a-3-4",
     label: "3/4 AIML - Sec A",
-    meta: "1st Sem · Room B-402 · w.e.f. 15-06-2026",
+    meta: "1st Sem · Room B-402",
     periods: [...AIML_PERIODS],
     rows: {
       Mon: row(["DL LAB", 4], ["NLP LAB", 4]),
@@ -36,7 +36,7 @@ export const PRESETS: PresetTimetable[] = [
   {
     id: "aiml-b-3-4",
     label: "3/4 AIML - Sec B",
-    meta: "1st Sem · Room C-202 · w.e.f. 15-06-2026",
+    meta: "1st Sem · Room C-202",
     periods: [...AIML_PERIODS],
     rows: {
       Mon: row(["UIDF LAB", 4], ["CN", 2], ["ES(QA)", 2]),
@@ -64,7 +64,7 @@ export const PRESETS: PresetTimetable[] = [
   {
     id: "aiml-d-3-4",
     label: "3/4 AIML - Sec D",
-    meta: "1st Sem · Room C-201 · w.e.f. 15-06-2026",
+    meta: "1st Sem · Room C-201",
     periods: [...AIML_PERIODS],
     rows: {
       Mon: row(["ES(VA)", 2], ["DL", 2], ["NLP", 2], ["CN", 2]),
