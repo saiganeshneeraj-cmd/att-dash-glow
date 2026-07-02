@@ -1191,18 +1191,22 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
   }, [allEntries, from, to, statusFilter, subjectFilter]);
 
   const perSubject = useMemo(() => {
-    const map = new Map<string, { attended: number; missed: number; cancelled: number; total: number }>();
+    const map = new Map<string, { attended: number; missed: number; cancelled: number; total: number; trend: number[] }>();
     filtered.forEach((e) => {
-      const s = map.get(e.subject) ?? { attended: 0, missed: 0, cancelled: 0, total: 0 };
+      const s = map.get(e.subject) ?? { attended: 0, missed: 0, cancelled: 0, total: 0, trend: [] };
       if (e.status === "attended") { s.attended++; s.total++; }
       else if (e.status === "missed") { s.missed++; s.total++; }
       else if (e.status === "cancelled") s.cancelled++;
+      if (e.status === "attended" || e.status === "missed") {
+        s.trend.push(s.total > 0 ? Math.round((s.attended / s.total) * 1000) / 10 : 0);
+      }
       map.set(e.subject, s);
     });
     return Array.from(map.entries())
       .map(([subject, s]) => ({ subject, ...s, pct: s.total > 0 ? Math.round((s.attended / s.total) * 1000) / 10 : 0 }))
       .sort((a, b) => a.subject.localeCompare(b.subject));
   }, [filtered]);
+
 
   const totals = useMemo(() => {
     let attended = 0, missed = 0, cancelled = 0, holiday = 0;
@@ -1359,6 +1363,52 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
           <SummaryTile label="Holidays" value={totals.holiday} color="var(--neon-magenta)" />
         </div>
 
+        {/* Attendance Alerts */}
+        {(() => {
+          const risky = perSubject.filter((p) => p.total > 0 && p.pct < 75);
+          const warn = perSubject.filter((p) => p.total > 0 && p.pct >= 75 && p.pct < 80);
+          if (risky.length === 0 && warn.length === 0) return null;
+          return (
+            <div className="mt-6">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--color-danger)" }}>
+                ⚠ Attendance alerts
+              </h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {risky.map((p) => {
+                  const needed = Math.max(0, Math.ceil(3 * p.total - 4 * p.attended));
+                  return (
+                    <div key={p.subject} className="flex items-center justify-between rounded-xl border p-3"
+                      style={{
+                        borderColor: "color-mix(in oklab, var(--color-danger) 45%, transparent)",
+                        background: "color-mix(in oklab, var(--color-danger) 10%, transparent)",
+                        boxShadow: "0 0 24px -14px var(--color-danger)",
+                      }}>
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">{p.subject}</div>
+                        <div className="text-xs text-muted-foreground">Attend {needed} more in a row to reach 75%</div>
+                      </div>
+                      <div className="text-xl font-bold" style={{ color: "var(--color-danger)", textShadow: "0 0 12px var(--color-danger)" }}>{p.pct}%</div>
+                    </div>
+                  );
+                })}
+                {warn.map((p) => (
+                  <div key={p.subject} className="flex items-center justify-between rounded-xl border p-3"
+                    style={{
+                      borderColor: "color-mix(in oklab, var(--color-warning) 45%, transparent)",
+                      background: "color-mix(in oklab, var(--color-warning) 8%, transparent)",
+                    }}>
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{p.subject}</div>
+                      <div className="text-xs text-muted-foreground">Cutting it close — stay above 75%</div>
+                    </div>
+                    <div className="text-xl font-bold" style={{ color: "var(--color-warning)" }}>{p.pct}%</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Per subject */}
         <h3 className="mt-6 mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Per subject</h3>
         {perSubject.length === 0 ? (
@@ -1371,6 +1421,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
               <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Subject</th>
+                  <th className="px-3 py-2">Trend</th>
                   <th className="px-3 py-2 text-right">Attended</th>
                   <th className="px-3 py-2 text-right">Missed</th>
                   <th className="px-3 py-2 text-right">Cancelled</th>
@@ -1384,6 +1435,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
                   return (
                     <tr key={r.subject} className="border-t border-border">
                       <td className="px-3 py-2 font-medium text-foreground">{r.subject}</td>
+                      <td className="px-3 py-2"><TrendSparkline data={r.trend} color={c} /></td>
                       <td className="px-3 py-2 text-right text-foreground">{r.attended}</td>
                       <td className="px-3 py-2 text-right text-foreground">{r.missed}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{r.cancelled}</td>
@@ -1396,6 +1448,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
             </table>
           </div>
         )}
+
 
         {/* Detailed log */}
         <h3 className="mt-6 mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Full log</h3>
@@ -1460,4 +1513,37 @@ function SummaryTile({ label, value, color }: { label: string; value: number | s
     </div>
   );
 }
+
+function TrendSparkline({ data, color, width = 120, height = 32 }: { data: number[]; color: string; width?: number; height?: number }) {
+  if (!data || data.length === 0) {
+    return <span className="text-[10px] text-muted-foreground">—</span>;
+  }
+  const w = width, h = height, pad = 2;
+  const n = data.length;
+  const xs = (i: number) => (n === 1 ? w / 2 : pad + (i * (w - 2 * pad)) / (n - 1));
+  const ys = (v: number) => h - pad - (Math.max(0, Math.min(100, v)) / 100) * (h - 2 * pad);
+  const path = data.map((v, i) => `${i === 0 ? "M" : "L"}${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(" ");
+  const area = `${path} L${xs(n - 1).toFixed(1)},${h - pad} L${xs(0).toFixed(1)},${h - pad} Z`;
+  const last = data[n - 1];
+  const threshY = ys(75);
+  const uid = `spk-${Math.random().toString(36).slice(2, 8)}`;
+  return (
+    <div className="flex items-center gap-2">
+      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+        <defs>
+          <linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <line x1="0" y1={threshY} x2={w} y2={threshY} stroke="currentColor" strokeOpacity="0.3" strokeDasharray="2 3" className="text-muted-foreground" />
+        <path d={area} fill={`url(#${uid})`} />
+        <path d={path} fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={xs(n - 1)} cy={ys(last)} r="2.5" fill={color} />
+      </svg>
+      <span className="text-[10px] font-medium tabular-nums text-muted-foreground">n={n}</span>
+    </div>
+  );
+}
+
 
