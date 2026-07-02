@@ -80,6 +80,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Beautiful attendance dashboard with instant safe-skip and target-attendance math for college students." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "theme-color", content: "#0a0a1a" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
