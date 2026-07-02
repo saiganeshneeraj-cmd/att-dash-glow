@@ -1,5 +1,4 @@
-// Attendance report generator — produces a real PDF/JPG (not JSON)
-// with headline %, per-subject stats and full history log.
+// Attendance report generator — PDF + JPG with clean branded layout.
 
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat";
 const DOW_TO_DAY: Record<number, DayKey | undefined> = {
@@ -141,223 +140,470 @@ async function loadJsPDF() {
   return mod.default;
 }
 
+// ------------------------------------------------------------------
+// PDF — carefully aligned, branded
+// ------------------------------------------------------------------
 export async function downloadPdfReport(state: AppStateLike) {
   const s = computeSummary(state);
   const jsPDF = await loadJsPDF();
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const M = 40;
-  let y = M;
+  const M = 44;
+  let y = 0;
 
-  const setColor = (hex: string) => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    doc.setTextColor(r, g, b);
-  };
-  const setFill = (hex: string) => {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    doc.setFillColor(r, g, b);
-  };
-  const ensureRoom = (h: number) => {
-    if (y + h > H - M) { doc.addPage(); y = M; }
+  const rgb = (hex: string): [number, number, number] => [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+  const setColor = (hex: string) => { const [r, g, b] = rgb(hex); doc.setTextColor(r, g, b); };
+  const setFill = (hex: string) => { const [r, g, b] = rgb(hex); doc.setFillColor(r, g, b); };
+  const setDraw = (hex: string) => { const [r, g, b] = rgb(hex); doc.setDrawColor(r, g, b); };
+  const ensureRoom = (h: number) => { if (y + h > H - M) { doc.addPage(); drawPageHeader(); } };
+
+  // Fonts — jsPDF built-in helvetica used to guarantee crisp text.
+  // Heading uses helvetica bold (visual proxy for Google Sans Bold).
+  // Body uses helvetica normal (visual proxy for Poppins).
+  const HEAD = "helvetica";
+  const BODY = "helvetica";
+
+  const drawPageHeader = () => {
+    // Full-bleed branded header band
+    setFill("#0B1220");
+    doc.rect(0, 0, W, 96, "F");
+    // Accent bar
+    setFill("#22D3EE");
+    doc.rect(0, 96, W, 3, "F");
+
+    // Logo mark — filled rounded square
+    setFill("#8B5CF6");
+    doc.roundedRect(M, 28, 40, 40, 8, 8, "F");
+    doc.setFont(HEAD, "bold");
+    doc.setFontSize(22);
+    setColor("#FFFFFF");
+    doc.text("A", M + 12, 56);
+
+    // Wordmark
+    doc.setFont(HEAD, "bold");
+    doc.setFontSize(22);
+    setColor("#F8FAFC");
+    doc.text("AttendEdge", M + 54, 52);
+    doc.setFont(BODY, "normal");
+    doc.setFontSize(10);
+    setColor("#94A3B8");
+    doc.text("Smart Student Attendance Tracker", M + 54, 68);
+
+    // Right-aligned meta
+    doc.setFont(BODY, "normal");
+    doc.setFontSize(9);
+    setColor("#CBD5E1");
+    const genLine = `Generated ${new Date().toLocaleString()}`;
+    const periodLine = `${s.startDate}  →  ${s.endDate}`;
+    doc.text(genLine, W - M, 52, { align: "right" });
+    doc.text(periodLine, W - M, 68, { align: "right" });
+
+    y = 128;
   };
 
-  // Header band
-  setFill("#0F172A");
-  doc.rect(0, 0, W, 90, "F");
-  setColor("#22D3EE");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(24);
-  doc.text("AttendEdge", M, 42);
-  setColor("#E2E8F0");
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.text(`Attendance report — ${s.startDate} → ${s.endDate}`, M, 62);
-  doc.text(`Generated ${new Date().toLocaleString()}`, M, 78);
-  y = 120;
+  drawPageHeader();
 
-  // Headline metric
-  const color = s.pct >= 80 ? "#22C55E" : s.pct >= 75 ? "#EAB308" : "#EF4444";
+  // ---------- Hero metric card ----------
+  const cardX = M, cardW = W - 2 * M, cardH = 128;
+  setFill("#F8FAFC"); doc.roundedRect(cardX, y, cardW, cardH, 12, 12, "F");
+  setDraw("#E2E8F0"); doc.roundedRect(cardX, y, cardW, cardH, 12, 12, "S");
+
+  const color = s.pct >= 80 ? "#16A34A" : s.pct >= 75 ? "#CA8A04" : "#DC2626";
   setColor(color);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(52);
-  doc.text(`${s.pct}%`, M, y + 20);
-  setColor("#111827");
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.text(`Attended ${s.attended} of ${s.total} classes`, M + 160, y);
-  doc.text(`Missed: ${s.missed}    Cancelled: ${s.cancelled}    Holidays: ${s.holiday}`, M + 160, y + 16);
-  doc.setFont("helvetica", "bold");
+  doc.setFont(HEAD, "bold");
+  doc.setFontSize(64);
+  doc.text(`${s.pct}%`, cardX + 24, y + 82);
+
+  setColor("#64748B");
+  doc.setFont(BODY, "normal");
+  doc.setFontSize(9);
+  doc.text("OVERALL ATTENDANCE", cardX + 24, y + 28);
+
+  // Right side stats — column-aligned
+  const rightX = cardX + cardW - 24;
+  const statLines: [string, string, string][] = [
+    ["Attended", `${s.attended}`, "#16A34A"],
+    ["Missed", `${s.missed}`, "#DC2626"],
+    ["Cancelled", `${s.cancelled}`, "#64748B"],
+    ["Holidays", `${s.holiday}`, "#7C3AED"],
+  ];
+  const colW = 90;
+  statLines.forEach(([label, val, c], i) => {
+    const x = rightX - (statLines.length - 1 - i) * colW;
+    setColor("#64748B"); doc.setFont(BODY, "normal"); doc.setFontSize(8);
+    doc.text(label.toUpperCase(), x, y + 32, { align: "right" });
+    setColor(c); doc.setFont(HEAD, "bold"); doc.setFontSize(20);
+    doc.text(val, x, y + 58, { align: "right" });
+  });
+
+  // Insight strip inside card
+  setFill(s.pct < 75 ? "#FEF2F2" : "#F0FDF4");
+  doc.roundedRect(cardX + 16, y + cardH - 34, cardW - 32, 22, 6, 6, "F");
+  setColor(s.pct < 75 ? "#B91C1C" : "#15803D");
+  doc.setFont(HEAD, "bold"); doc.setFontSize(10);
   doc.text(
     s.pct < 75
       ? `Attend ${s.target} more classes in a row to reach 75%.`
-      : `You can safely skip up to ${s.safe} classes.`,
-    M + 160, y + 34,
+      : `You can safely skip up to ${s.safe} classes and stay above 75%.`,
+    cardX + 26, y + cardH - 19,
   );
-  y += 60;
+  y += cardH + 22;
 
-  // Per-subject table
+  // ---------- Per-subject table ----------
   if (s.perSubject.length) {
-    ensureRoom(40);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(14);
-    setColor("#0F172A"); doc.text("Per-subject breakdown", M, y); y += 14;
-    setFill("#F1F5F9"); doc.rect(M, y, W - 2 * M, 22, "F");
-    doc.setFontSize(10); setColor("#334155");
-    doc.text("Subject", M + 8, y + 15);
-    doc.text("Attended", M + 250, y + 15);
-    doc.text("Missed", M + 320, y + 15);
-    doc.text("Total", M + 380, y + 15);
-    doc.text("%", W - M - 40, y + 15);
-    y += 22;
-    doc.setFont("helvetica", "normal"); setColor("#0F172A");
+    ensureRoom(60);
+    setColor("#0F172A"); doc.setFont(HEAD, "bold"); doc.setFontSize(14);
+    doc.text("Per-subject breakdown", M, y); y += 16;
+
+    const cols = {
+      subject: M + 12,
+      attended: M + cardW - 300,
+      missed: M + cardW - 220,
+      total: M + cardW - 140,
+      pct: M + cardW - 12,
+    };
+
+    // Table header
+    setFill("#0F172A"); doc.roundedRect(M, y, cardW, 26, 6, 6, "F");
+    setColor("#F8FAFC"); doc.setFont(HEAD, "bold"); doc.setFontSize(9);
+    doc.text("SUBJECT", cols.subject, y + 17);
+    doc.text("ATTENDED", cols.attended, y + 17, { align: "right" });
+    doc.text("MISSED", cols.missed, y + 17, { align: "right" });
+    doc.text("TOTAL", cols.total, y + 17, { align: "right" });
+    doc.text("%", cols.pct, y + 17, { align: "right" });
+    y += 26;
+
     s.perSubject.forEach((p, i) => {
-      ensureRoom(20);
-      if (i % 2 === 1) { setFill("#F8FAFC"); doc.rect(M, y, W - 2 * M, 18, "F"); }
-      setColor("#0F172A");
-      doc.text(String(p.subject).slice(0, 42), M + 8, y + 13);
-      doc.text(String(p.attended), M + 250, y + 13);
-      doc.text(String(p.missed), M + 320, y + 13);
-      doc.text(String(p.total), M + 380, y + 13);
+      ensureRoom(22);
+      if (i % 2 === 1) { setFill("#F8FAFC"); doc.rect(M, y, cardW, 22, "F"); }
+      setColor("#0F172A"); doc.setFont(BODY, "normal"); doc.setFontSize(10);
+      doc.text(String(p.subject).slice(0, 46), cols.subject, y + 15);
+      doc.text(String(p.attended), cols.attended, y + 15, { align: "right" });
+      doc.text(String(p.missed), cols.missed, y + 15, { align: "right" });
+      doc.text(String(p.total), cols.total, y + 15, { align: "right" });
       const pc = p.pct >= 80 ? "#16A34A" : p.pct >= 75 ? "#CA8A04" : "#DC2626";
-      setColor(pc); doc.setFont("helvetica", "bold");
-      doc.text(`${p.pct}%`, W - M - 40, y + 13);
-      doc.setFont("helvetica", "normal");
-      y += 18;
+      setColor(pc); doc.setFont(HEAD, "bold");
+      doc.text(`${p.pct}%`, cols.pct, y + 15, { align: "right" });
+      y += 22;
+    });
+    setDraw("#E2E8F0"); doc.line(M, y, M + cardW, y);
+    y += 20;
+  }
+
+  // ---------- Alerts (subjects < 75%) ----------
+  const risky = s.perSubject.filter((p) => p.pct < 75 && p.total > 0);
+  if (risky.length) {
+    ensureRoom(40);
+    setColor("#B91C1C"); doc.setFont(HEAD, "bold"); doc.setFontSize(14);
+    doc.text("⚠ Attendance alerts", M, y); y += 16;
+    risky.forEach((p) => {
+      ensureRoom(28);
+      setFill("#FEF2F2"); doc.roundedRect(M, y, cardW, 24, 6, 6, "F");
+      setColor("#7F1D1D"); doc.setFont(HEAD, "bold"); doc.setFontSize(10);
+      doc.text(p.subject, M + 12, y + 16);
+      const needed = Math.max(0, Math.ceil(3 * p.total - 4 * p.attended));
+      setColor("#991B1B"); doc.setFont(BODY, "normal");
+      doc.text(
+        `${p.pct}% — attend ${needed} more in a row to reach 75%`,
+        M + cardW - 12, y + 16, { align: "right" },
+      );
+      y += 28;
     });
     y += 12;
   }
 
-  // Full log
+  // ---------- Class log ----------
   if (s.entries.length) {
-    ensureRoom(40);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(14);
-    setColor("#0F172A"); doc.text("Class log", M, y); y += 14;
-    setFill("#F1F5F9"); doc.rect(M, y, W - 2 * M, 22, "F");
-    doc.setFontSize(10); setColor("#334155");
-    doc.text("Date", M + 8, y + 15);
-    doc.text("Period", M + 110, y + 15);
-    doc.text("Subject", M + 210, y + 15);
-    doc.text("Status", W - M - 60, y + 15);
-    y += 22;
-    doc.setFont("helvetica", "normal");
-    // newest first
+    ensureRoom(60);
+    setColor("#0F172A"); doc.setFont(HEAD, "bold"); doc.setFontSize(14);
+    doc.text("Class log", M, y); y += 16;
+
+    const cols = {
+      date: M + 12,
+      period: M + 120,
+      subject: M + 220,
+      status: M + cardW - 12,
+    };
+    setFill("#0F172A"); doc.roundedRect(M, y, cardW, 24, 6, 6, "F");
+    setColor("#F8FAFC"); doc.setFont(HEAD, "bold"); doc.setFontSize(9);
+    doc.text("DATE", cols.date, y + 16);
+    doc.text("PERIOD", cols.period, y + 16);
+    doc.text("SUBJECT", cols.subject, y + 16);
+    doc.text("STATUS", cols.status, y + 16, { align: "right" });
+    y += 24;
+
     const rows = [...s.entries].reverse();
     rows.forEach((e, i) => {
-      ensureRoom(16);
-      if (i % 2 === 1) { setFill("#F8FAFC"); doc.rect(M, y, W - 2 * M, 14, "F"); }
-      setColor("#0F172A");
-      doc.text(e.iso, M + 8, y + 11);
-      doc.text(String(e.periodLabel).slice(0, 20), M + 110, y + 11);
-      doc.text(String(e.subject).slice(0, 32), M + 210, y + 11);
+      ensureRoom(18);
+      if (i % 2 === 1) { setFill("#F8FAFC"); doc.rect(M, y, cardW, 16, "F"); }
+      setColor("#0F172A"); doc.setFont(BODY, "normal"); doc.setFontSize(9);
+      doc.text(e.iso, cols.date, y + 12);
+      doc.text(String(e.periodLabel).slice(0, 18), cols.period, y + 12);
+      doc.text(String(e.subject).slice(0, 34), cols.subject, y + 12);
       const sc =
         e.status === "attended" ? "#16A34A" :
         e.status === "missed" ? "#DC2626" :
         e.status === "cancelled" ? "#64748B" : "#7C3AED";
-      setColor(sc); doc.setFont("helvetica", "bold");
-      doc.text(e.status.toUpperCase(), W - M - 60, y + 11);
-      doc.setFont("helvetica", "normal");
-      y += 14;
+      setColor(sc); doc.setFont(HEAD, "bold");
+      doc.text(e.status.toUpperCase(), cols.status, y + 12, { align: "right" });
+      y += 16;
     });
+  }
+
+  // Footer on every page
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    setColor("#94A3B8"); doc.setFont(BODY, "normal"); doc.setFontSize(8);
+    doc.text("AttendEdge · attendedge.app", M, H - 18);
+    doc.text(`Page ${i} of ${pageCount}`, W - M, H - 18, { align: "right" });
   }
 
   doc.save(`attendance-report-${todayISO()}.pdf`);
 }
 
+// ------------------------------------------------------------------
+// Image (JPG) — branded summary card
+// ------------------------------------------------------------------
+async function ensureFontsReady() {
+  try {
+    const anyDoc: any = document;
+    if (anyDoc?.fonts?.load) {
+      await Promise.all([
+        anyDoc.fonts.load('700 48px "Google Sans"'),
+        anyDoc.fonts.load('700 16px "Poppins"'),
+        anyDoc.fonts.load('400 14px "Poppins"'),
+      ]);
+      await anyDoc.fonts.ready;
+    }
+  } catch { /* ignore */ }
+}
+
 export async function downloadImageReport(state: AppStateLike) {
   const s = computeSummary(state);
+  await ensureFontsReady();
+
   const scale = 2;
-  const W = 820, PADDING = 40;
-  const rowH = 22, headerH = 260;
-  const perSubH = s.perSubject.length ? 40 + s.perSubject.length * rowH + 20 : 0;
-  const logH = s.entries.length ? 40 + Math.min(s.entries.length, 60) * 18 + 20 : 0;
-  const H = headerH + perSubH + logH + PADDING;
+  const W = 900;
+  const PAD = 48;
+  const HEAD_H = 260;
+  const ROW = 26;
+  const perSubH = s.perSubject.length ? 60 + s.perSubject.length * ROW + 20 : 0;
+  const risky = s.perSubject.filter((p) => p.pct < 75 && p.total > 0);
+  const alertsH = risky.length ? 60 + risky.length * 40 + 20 : 0;
+  const logRows = Math.min(s.entries.length, 60);
+  const logH = logRows ? 60 + logRows * 22 + 20 : 0;
+  const H = HEAD_H + perSubH + alertsH + logH + PAD + 60;
 
   const canvas = document.createElement("canvas");
   canvas.width = W * scale; canvas.height = H * scale;
   const ctx = canvas.getContext("2d")!;
   ctx.scale(scale, scale);
 
+  const HEAD_FONT = '"Google Sans", "Poppins", system-ui, sans-serif';
+  const BODY_FONT = '"Poppins", "Inter", system-ui, sans-serif';
+
   // Background gradient
   const grad = ctx.createLinearGradient(0, 0, W, H);
   grad.addColorStop(0, "#0B1220");
-  grad.addColorStop(1, "#1E1B4B");
+  grad.addColorStop(0.5, "#1E1B4B");
+  grad.addColorStop(1, "#0B1220");
   ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
 
-  // Header
-  ctx.fillStyle = "#22D3EE";
-  ctx.font = "bold 34px Inter, sans-serif";
-  ctx.fillText("AttendEdge", PADDING, 60);
-  ctx.fillStyle = "#94A3B8";
-  ctx.font = "13px Inter, sans-serif";
-  ctx.fillText(`${s.startDate} → ${s.endDate}   ·   Generated ${new Date().toLocaleString()}`, PADDING, 84);
+  // Subtle grid
+  ctx.strokeStyle = "rgba(148,163,184,0.06)";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
 
-  // Big percentage
-  const color = s.pct >= 80 ? "#22C55E" : s.pct >= 75 ? "#F59E0B" : "#EF4444";
+  // Header band
+  const headGrad = ctx.createLinearGradient(0, 0, W, 0);
+  headGrad.addColorStop(0, "rgba(139,92,246,0.25)");
+  headGrad.addColorStop(1, "rgba(34,211,238,0.25)");
+  ctx.fillStyle = headGrad; ctx.fillRect(0, 0, W, 110);
+  ctx.fillStyle = "#22D3EE"; ctx.fillRect(0, 110, W, 2);
+
+  // Logo mark
+  ctx.fillStyle = "#8B5CF6";
+  roundRect(ctx, PAD, 30, 48, 48, 10); ctx.fill();
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = `700 26px ${HEAD_FONT}`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("A", PAD + 24, 55);
+  ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+
+  // Wordmark
+  ctx.fillStyle = "#F8FAFC";
+  ctx.font = `700 28px ${HEAD_FONT}`;
+  ctx.fillText("AttendEdge", PAD + 64, 58);
+  ctx.fillStyle = "#94A3B8";
+  ctx.font = `400 12px ${BODY_FONT}`;
+  ctx.fillText("Smart Student Attendance Tracker", PAD + 64, 78);
+
+  // Right meta
+  ctx.fillStyle = "#CBD5E1";
+  ctx.font = `400 11px ${BODY_FONT}`;
+  ctx.textAlign = "right";
+  ctx.fillText(`${s.startDate}  →  ${s.endDate}`, W - PAD, 58);
+  ctx.fillText(`Generated ${new Date().toLocaleString()}`, W - PAD, 76);
+  ctx.textAlign = "start";
+
+  // Hero card
+  const cardY = 138, cardH = 100;
+  ctx.fillStyle = "rgba(15,23,42,0.55)";
+  roundRect(ctx, PAD, cardY, W - PAD * 2, cardH, 14); ctx.fill();
+  ctx.strokeStyle = "rgba(148,163,184,0.2)"; ctx.stroke();
+
+  ctx.fillStyle = "#94A3B8";
+  ctx.font = `500 10px ${BODY_FONT}`;
+  ctx.fillText("OVERALL ATTENDANCE", PAD + 24, cardY + 26);
+
+  const color = s.pct >= 80 ? "#4ADE80" : s.pct >= 75 ? "#FBBF24" : "#F87171";
   ctx.fillStyle = color;
-  ctx.font = "bold 96px Space Grotesk, Inter, sans-serif";
-  ctx.fillText(`${s.pct}%`, PADDING, 200);
-  ctx.fillStyle = "#E2E8F0";
-  ctx.font = "16px Inter, sans-serif";
-  ctx.fillText(`Attended ${s.attended} / ${s.total} classes`, PADDING + 220, 160);
-  ctx.fillText(`Missed ${s.missed}  ·  Cancelled ${s.cancelled}  ·  Holidays ${s.holiday}`, PADDING + 220, 184);
-  ctx.fillStyle = "#F0ABFC";
-  ctx.font = "bold 15px Inter, sans-serif";
+  ctx.font = `700 64px ${HEAD_FONT}`;
+  ctx.fillText(`${s.pct}%`, PAD + 22, cardY + 82);
+
+  // Right stats — grid aligned
+  const stats: [string, string, string][] = [
+    ["Attended", `${s.attended}`, "#4ADE80"],
+    ["Missed", `${s.missed}`, "#F87171"],
+    ["Cancelled", `${s.cancelled}`, "#94A3B8"],
+    ["Holidays", `${s.holiday}`, "#C084FC"],
+  ];
+  const rightEdge = W - PAD - 24;
+  const colGap = 110;
+  ctx.textAlign = "right";
+  stats.forEach(([lab, val, c], i) => {
+    const x = rightEdge - (stats.length - 1 - i) * colGap;
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = `500 10px ${BODY_FONT}`;
+    ctx.fillText(lab.toUpperCase(), x, cardY + 34);
+    ctx.fillStyle = c;
+    ctx.font = `700 22px ${HEAD_FONT}`;
+    ctx.fillText(val, x, cardY + 66);
+  });
+  ctx.textAlign = "start";
+
+  // Insight pill
+  ctx.fillStyle = s.pct < 75 ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)";
+  roundRect(ctx, PAD, cardY + cardH + 12, W - PAD * 2, 32, 10); ctx.fill();
+  ctx.fillStyle = s.pct < 75 ? "#FCA5A5" : "#86EFAC";
+  ctx.font = `600 13px ${HEAD_FONT}`;
   ctx.fillText(
     s.pct < 75
-      ? `Attend ${s.target} more in a row to reach 75%`
-      : `You can safely skip up to ${s.safe} classes`,
-    PADDING + 220, 210,
+      ? `⚠ Attend ${s.target} more classes in a row to reach 75%`
+      : `✓ You can safely skip up to ${s.safe} classes`,
+    PAD + 16, cardY + cardH + 33,
   );
 
-  let y = headerH;
+  let y = HEAD_H + 20;
 
-  // Per-subject
+  // Per-subject block
   if (s.perSubject.length) {
-    ctx.fillStyle = "#E2E8F0";
-    ctx.font = "bold 18px Inter, sans-serif";
-    ctx.fillText("Per-subject", PADDING, y); y += 24;
-    ctx.font = "12px Inter, sans-serif";
-    s.perSubject.forEach((p) => {
-      ctx.fillStyle = "rgba(255,255,255,0.04)";
-      ctx.fillRect(PADDING, y - 14, W - PADDING * 2, rowH - 4);
+    ctx.fillStyle = "#F8FAFC";
+    ctx.font = `700 18px ${HEAD_FONT}`;
+    ctx.fillText("Per-subject", PAD, y); y += 24;
+
+    // Column headers
+    ctx.fillStyle = "#64748B";
+    ctx.font = `500 10px ${BODY_FONT}`;
+    ctx.fillText("SUBJECT", PAD + 12, y);
+    ctx.textAlign = "right";
+    ctx.fillText("ATTENDED", W - PAD - 220, y);
+    ctx.fillText("TOTAL", W - PAD - 120, y);
+    ctx.fillText("%", W - PAD - 20, y);
+    ctx.textAlign = "start";
+    y += 8;
+    ctx.strokeStyle = "rgba(148,163,184,0.2)";
+    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+    y += 10;
+
+    s.perSubject.forEach((p, i) => {
+      if (i % 2 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.03)";
+        ctx.fillRect(PAD, y - 14, W - PAD * 2, ROW - 4);
+      }
       ctx.fillStyle = "#F1F5F9";
-      ctx.fillText(p.subject.slice(0, 40), PADDING + 8, y);
-      ctx.fillText(`${p.attended}/${p.total}`, W - PADDING - 140, y);
+      ctx.font = `500 13px ${BODY_FONT}`;
+      ctx.fillText(p.subject.slice(0, 44), PAD + 12, y);
+      ctx.fillStyle = "#CBD5E1";
+      ctx.font = `400 13px ${BODY_FONT}`;
+      ctx.textAlign = "right";
+      ctx.fillText(`${p.attended}`, W - PAD - 220, y);
+      ctx.fillText(`${p.total}`, W - PAD - 120, y);
       ctx.fillStyle = p.pct >= 80 ? "#4ADE80" : p.pct >= 75 ? "#FBBF24" : "#F87171";
-      ctx.font = "bold 13px Inter, sans-serif";
-      ctx.fillText(`${p.pct}%`, W - PADDING - 60, y);
-      ctx.font = "12px Inter, sans-serif";
-      y += rowH;
+      ctx.font = `700 14px ${HEAD_FONT}`;
+      ctx.fillText(`${p.pct}%`, W - PAD - 20, y);
+      ctx.textAlign = "start";
+      y += ROW;
+    });
+    y += 18;
+  }
+
+  // Alerts
+  if (risky.length) {
+    ctx.fillStyle = "#FCA5A5";
+    ctx.font = `700 18px ${HEAD_FONT}`;
+    ctx.fillText("⚠ Attendance alerts", PAD, y); y += 20;
+    risky.forEach((p) => {
+      ctx.fillStyle = "rgba(239,68,68,0.12)";
+      roundRect(ctx, PAD, y, W - PAD * 2, 32, 8); ctx.fill();
+      ctx.fillStyle = "#FECACA";
+      ctx.font = `600 13px ${HEAD_FONT}`;
+      ctx.fillText(p.subject, PAD + 14, y + 20);
+      const needed = Math.max(0, Math.ceil(3 * p.total - 4 * p.attended));
+      ctx.fillStyle = "#FEE2E2";
+      ctx.font = `400 12px ${BODY_FONT}`;
+      ctx.textAlign = "right";
+      ctx.fillText(`${p.pct}% · attend ${needed} more in a row`, W - PAD - 14, y + 20);
+      ctx.textAlign = "start";
+      y += 40;
     });
     y += 12;
   }
 
-  // Log (last 60)
-  if (s.entries.length) {
-    ctx.fillStyle = "#E2E8F0";
-    ctx.font = "bold 18px Inter, sans-serif";
-    ctx.fillText("Recent classes", PADDING, y); y += 22;
-    ctx.font = "12px Inter, sans-serif";
-    const rows = [...s.entries].reverse().slice(0, 60);
-    rows.forEach((e) => {
-      ctx.fillStyle = "#CBD5E1";
-      ctx.fillText(e.iso, PADDING + 8, y);
-      ctx.fillText(e.subject.slice(0, 30), PADDING + 130, y);
+  // Recent log
+  if (logRows) {
+    ctx.fillStyle = "#F8FAFC";
+    ctx.font = `700 18px ${HEAD_FONT}`;
+    ctx.fillText("Recent classes", PAD, y); y += 22;
+    ctx.strokeStyle = "rgba(148,163,184,0.2)";
+    ctx.beginPath(); ctx.moveTo(PAD, y - 8); ctx.lineTo(W - PAD, y - 8); ctx.stroke();
+    const rows = [...s.entries].reverse().slice(0, logRows);
+    rows.forEach((e, i) => {
+      if (i % 2 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.03)";
+        ctx.fillRect(PAD, y - 12, W - PAD * 2, 20);
+      }
+      ctx.fillStyle = "#CBD5E1"; ctx.font = `400 12px ${BODY_FONT}`;
+      ctx.fillText(e.iso, PAD + 12, y);
+      ctx.fillStyle = "#94A3B8";
+      ctx.fillText(String(e.periodLabel).slice(0, 14), PAD + 130, y);
+      ctx.fillStyle = "#E2E8F0";
+      ctx.fillText(e.subject.slice(0, 34), PAD + 240, y);
       const sc =
         e.status === "attended" ? "#4ADE80" :
         e.status === "missed" ? "#F87171" :
         e.status === "cancelled" ? "#94A3B8" : "#C084FC";
-      ctx.fillStyle = sc;
-      ctx.font = "bold 12px Inter, sans-serif";
-      ctx.fillText(e.status.toUpperCase(), W - PADDING - 90, y);
-      ctx.font = "12px Inter, sans-serif";
-      y += 18;
+      ctx.fillStyle = sc; ctx.font = `700 11px ${HEAD_FONT}`;
+      ctx.textAlign = "right";
+      ctx.fillText(e.status.toUpperCase(), W - PAD - 12, y);
+      ctx.textAlign = "start";
+      y += 22;
     });
   }
+
+  // Footer
+  ctx.fillStyle = "#64748B";
+  ctx.font = `400 11px ${BODY_FONT}`;
+  ctx.fillText("AttendEdge · attendedge.app", PAD, H - 20);
+  ctx.textAlign = "right";
+  ctx.fillText("Threshold 75%", W - PAD, H - 20);
+  ctx.textAlign = "start";
 
   await new Promise<void>((resolve) => {
     canvas.toBlob((blob) => {
@@ -371,4 +617,14 @@ export async function downloadImageReport(state: AppStateLike) {
       resolve();
     }, "image/jpeg", 0.95);
   });
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
