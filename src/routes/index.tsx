@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, signOut } from "@/hooks/use-auth";
 import { PRESETS, type PresetTimetable } from "@/lib/presets";
+import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText } from "@/lib/report";
 
 export const Route = createFileRoute("/")({
   component: AttendancePage,
@@ -331,6 +332,7 @@ function AttendancePage() {
           mode={mode} setMode={setMode} hydrated={hydrated}
           user={user} syncStatus={syncStatus}
           onExport={exportData} onImport={importData}
+          state={state}
         />
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
@@ -370,16 +372,53 @@ function AttendancePage() {
    Header
    ============================================================ */
 function Header({
-  mode, setMode, hydrated, user, syncStatus, onExport, onImport,
+  mode, setMode, hydrated, user, syncStatus, onExport, onImport, state,
 }: {
   mode: Mode; setMode: (m: Mode) => void; hydrated: boolean;
   user: ReturnType<typeof useAuth>["user"]; syncStatus: string;
-  onExport: () => void; onImport: (f: File) => void;
+  onExport: () => void; onImport: (f: File) => void; state: AppState;
 }) {
   const [today, setToday] = useState<string>("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [busy, setBusy] = useState<null | "pdf" | "img" | "share">(null);
+  const [shareMsg, setShareMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setToday(formatLongDate(new Date())); }, []);
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    if (menuOpen) document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [menuOpen]);
   const initial = user?.email?.[0]?.toUpperCase() ?? "?";
+
+  const doPdf = async () => {
+    setBusy("pdf"); setMenuOpen(false);
+    try { await downloadPdfReport(state); } finally { setBusy(null); }
+  };
+  const doImg = async () => {
+    setBusy("img"); setMenuOpen(false);
+    try { await downloadImageReport(state); } finally { setBusy(null); }
+  };
+  const doShare = async () => {
+    setBusy("share"); setMenuOpen(false);
+    const text = summaryToText(computeSummary(state));
+    try {
+      if (navigator.share) {
+        try { await navigator.share({ title: "My attendance", text }); }
+        catch { await navigator.clipboard.writeText(text); setShareMsg("Copied to clipboard"); }
+      } else {
+        await navigator.clipboard.writeText(text);
+        setShareMsg("Copied to clipboard");
+      }
+    } catch { setShareMsg("Could not copy"); }
+    finally {
+      setBusy(null);
+      setTimeout(() => setShareMsg(null), 2200);
+    }
+  };
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-4">
@@ -414,14 +453,42 @@ function Header({
           ))}
         </div>
 
-        <button onClick={onExport} title="Download backup"
-          className="rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-cyan)]">
-          ↓ Export
-        </button>
-        <button onClick={() => fileRef.current?.click()} title="Restore backup"
-          className="rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-magenta)]">
-          ↑ Import
-        </button>
+        <div ref={menuRef} className="relative">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            disabled={!!busy}
+            className="press-card rounded-full px-4 py-2 text-xs font-bold text-primary-foreground transition disabled:opacity-60"
+            style={{ background: "var(--gradient-primary)", boxShadow: "0 0 18px -6px var(--neon-magenta)" }}
+            title="Download attendance report"
+          >
+            {busy === "pdf" ? "Building PDF…" : busy === "img" ? "Building image…" : busy === "share" ? "Preparing…" : "↓ Download"}
+          </button>
+          {menuOpen && (
+            <div className="animate-toast-in absolute right-0 top-full z-30 mt-2 w-56 rounded-2xl border border-primary/30 bg-popover p-1.5 shadow-2xl backdrop-blur-xl">
+              <button onClick={doPdf} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>📄</span><div><div className="font-semibold">PDF report</div><div className="text-[10px] text-muted-foreground">Full summary + class log</div></div>
+              </button>
+              <button onClick={doImg} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>🖼️</span><div><div className="font-semibold">Image (JPG)</div><div className="text-[10px] text-muted-foreground">Shareable card</div></div>
+              </button>
+              <button onClick={doShare} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>🔗</span><div><div className="font-semibold">Share / copy</div><div className="text-[10px] text-muted-foreground">WhatsApp-ready text</div></div>
+              </button>
+              <div className="my-1 h-px bg-border" />
+              <button onClick={() => { setMenuOpen(false); onExport(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>💾</span><div><div className="font-semibold">JSON backup</div><div className="text-[10px] text-muted-foreground">Move data between devices</div></div>
+              </button>
+              <button onClick={() => { setMenuOpen(false); fileRef.current?.click(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>📥</span><div><div className="font-semibold">Import backup</div><div className="text-[10px] text-muted-foreground">Restore from JSON</div></div>
+              </button>
+            </div>
+          )}
+          {shareMsg && (
+            <div className="animate-toast-in absolute right-0 top-full mt-2 rounded-full border border-success/40 bg-card px-3 py-1.5 text-xs text-success shadow-lg">
+              {shareMsg}
+            </div>
+          )}
+        </div>
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.currentTarget.value = ""; }} />
 
