@@ -624,7 +624,7 @@ function DetailedTracker({
           onGoToLog={() => setTab("log")}
         />
       ) : (
-        <LogPanel detailed={detailed} setDetailed={setDetailed} />
+        <LogPanel detailed={detailed} setDetailed={setDetailed} captureUndo={captureUndo} />
       )}
     </div>
   );
