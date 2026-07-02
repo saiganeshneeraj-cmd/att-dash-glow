@@ -1024,3 +1024,373 @@ const DayCard = memo(function DayCard({
     </div>
   );
 });
+
+/* ============================================================
+   Undo Toast
+   ============================================================ */
+function UndoToast({ toast, onUndo, onDismiss }: {
+  toast: { label: string; id: number } | null;
+  onUndo: () => void;
+  onDismiss: () => void;
+}) {
+  if (!toast) return null;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+      <div key={toast.id} className="animate-toast-in pointer-events-auto flex items-center gap-3 rounded-full border px-4 py-2.5 text-sm text-foreground shadow-2xl backdrop-blur-md"
+        style={{
+          background: "color-mix(in oklab, var(--popover) 85%, transparent)",
+          borderColor: "color-mix(in oklab, var(--neon-cyan) 50%, transparent)",
+          boxShadow: "0 0 40px -8px var(--neon-magenta), 0 0 24px -6px var(--neon-cyan)",
+        }}>
+        <span className="text-muted-foreground">{toast.label}</span>
+        <button onClick={onUndo}
+          className="rounded-full px-3 py-1 text-xs font-bold text-primary-foreground transition hover:brightness-110"
+          style={{ background: "var(--gradient-primary)" }}>
+          Undo
+        </button>
+        <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss">✕</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   History View — per-subject logs, filters, PDF/JPG export
+   ============================================================ */
+type HistoryEntry = {
+  iso: string;
+  dateLabel: string;
+  day: DayKey;
+  periodIdx: number;
+  periodLabel: string;
+  subject: string;
+  status: "attended" | "missed" | "cancelled" | "holiday";
+};
+
+function HistoryView({ detailed }: { detailed: DetailedData }) {
+  const [from, setFrom] = useState<string>(detailed.startDate);
+  const [to, setTo] = useState<string>(todayISO());
+  const [statusFilter, setStatusFilter] = useState<"all" | "attended" | "missed" | "cancelled" | "holiday">("all");
+  const [subjectFilter, setSubjectFilter] = useState<string>("all");
+  const [exporting, setExporting] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const holidaySet = useMemo(() => new Set(detailed.holidays), [detailed.holidays]);
+
+  const allEntries = useMemo<HistoryEntry[]>(() => {
+    const arr: HistoryEntry[] = [];
+    const startISO = detailed.startDate;
+    const endISO = todayISO();
+    const s = new Date(startISO + "T00:00:00");
+    const e = new Date(endISO + "T00:00:00");
+    if (isNaN(s.getTime()) || e < s) return arr;
+    const cur = new Date(s);
+    while (cur <= e) {
+      const iso = cur.toISOString().slice(0, 10);
+      const day = DOW_TO_DAY[cur.getDay()];
+      if (day) {
+        const row = detailed.timetable[day] || [];
+        const isHoliday = holidaySet.has(iso);
+        row.forEach((subj, idx) => {
+          if (!subj.trim()) return;
+          const key = `${iso}__${idx}`;
+          const st = isHoliday ? "holiday" : (detailed.states[key] ?? "attended");
+          arr.push({
+            iso, dateLabel: formatShortDate(cur), day,
+            periodIdx: idx, periodLabel: detailed.periods[idx] ?? `P${idx + 1}`,
+            subject: subj, status: st as HistoryEntry["status"],
+          });
+        });
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return arr;
+  }, [detailed, holidaySet]);
+
+  const subjects = useMemo(() => {
+    const set = new Set<string>();
+    allEntries.forEach((e) => set.add(e.subject));
+    return Array.from(set).sort();
+  }, [allEntries]);
+
+  const filtered = useMemo(() => {
+    return allEntries.filter((e) => {
+      if (from && e.iso < from) return false;
+      if (to && e.iso > to) return false;
+      if (statusFilter !== "all" && e.status !== statusFilter) return false;
+      if (subjectFilter !== "all" && e.subject !== subjectFilter) return false;
+      return true;
+    });
+  }, [allEntries, from, to, statusFilter, subjectFilter]);
+
+  const perSubject = useMemo(() => {
+    const map = new Map<string, { attended: number; missed: number; cancelled: number; total: number }>();
+    filtered.forEach((e) => {
+      const s = map.get(e.subject) ?? { attended: 0, missed: 0, cancelled: 0, total: 0 };
+      if (e.status === "attended") { s.attended++; s.total++; }
+      else if (e.status === "missed") { s.missed++; s.total++; }
+      else if (e.status === "cancelled") s.cancelled++;
+      map.set(e.subject, s);
+    });
+    return Array.from(map.entries())
+      .map(([subject, s]) => ({ subject, ...s, pct: s.total > 0 ? Math.round((s.attended / s.total) * 1000) / 10 : 0 }))
+      .sort((a, b) => a.subject.localeCompare(b.subject));
+  }, [filtered]);
+
+  const totals = useMemo(() => {
+    let attended = 0, missed = 0, cancelled = 0, holiday = 0;
+    filtered.forEach((e) => {
+      if (e.status === "attended") attended++;
+      else if (e.status === "missed") missed++;
+      else if (e.status === "cancelled") cancelled++;
+      else if (e.status === "holiday") holiday++;
+    });
+    const total = attended + missed;
+    const pct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+    return { attended, missed, cancelled, holiday, total, pct };
+  }, [filtered]);
+
+  const exportPdf = useCallback(async () => {
+    if (!printRef.current) return;
+    setExporting(true);
+    try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"), import("jspdf"),
+      ]);
+      const node = printRef.current;
+      const canvas = await html2canvas(node, {
+        backgroundColor: "#0a0a1a", scale: 2, useCORS: true, logging: false,
+      });
+      const img = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+      const ratio = canvas.width / canvas.height;
+      const imgW = pw - 24, imgH = imgW / ratio;
+      let y = 12, remaining = imgH;
+      if (imgH <= ph - 24) {
+        pdf.addImage(img, "JPEG", 12, y, imgW, imgH);
+      } else {
+        // Slice tall canvas across pages
+        const pxPerPt = canvas.width / imgW;
+        const pageContentH = ph - 24;
+        const sliceCanvasH = Math.floor(pageContentH * pxPerPt);
+        let sy = 0;
+        while (sy < canvas.height) {
+          const sh = Math.min(sliceCanvasH, canvas.height - sy);
+          const slice = document.createElement("canvas");
+          slice.width = canvas.width; slice.height = sh;
+          slice.getContext("2d")!.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+          const sliceImg = slice.toDataURL("image/jpeg", 0.92);
+          const sHpt = sh / pxPerPt;
+          if (sy > 0) pdf.addPage();
+          pdf.addImage(sliceImg, "JPEG", 12, 12, imgW, sHpt);
+          sy += sh;
+          remaining -= sHpt;
+        }
+      }
+      pdf.save(`attendance-history-${todayISO()}.pdf`);
+    } finally { setExporting(false); }
+  }, []);
+
+  const exportJpg = useCallback(async () => {
+    if (!printRef.current) return;
+    setExporting(true);
+    try {
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(printRef.current, {
+        backgroundColor: "#0a0a1a", scale: 2, useCORS: true, logging: false,
+      });
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `attendance-history-${todayISO()}.jpg`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      }, "image/jpeg", 0.95);
+    } finally { setExporting(false); }
+  }, []);
+
+  const statusColors: Record<HistoryEntry["status"], string> = {
+    attended: "var(--color-success)",
+    missed: "var(--color-danger)",
+    cancelled: "var(--muted-foreground)",
+    holiday: "var(--neon-magenta)",
+  };
+
+  return (
+    <div className="glass-neon p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">Attendance History</h2>
+          <p className="text-xs text-muted-foreground sm:text-sm">Per-subject logs, filters, and downloadable report.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={exportJpg} disabled={exporting}
+            className="press-card rounded-full border border-primary/40 bg-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/20 disabled:opacity-50">
+            {exporting ? "…" : "↓ JPG"}
+          </button>
+          <button onClick={exportPdf} disabled={exporting}
+            className="press-card rounded-full px-4 py-2 text-xs font-bold text-primary-foreground transition disabled:opacity-50"
+            style={{ background: "var(--gradient-primary)", boxShadow: "0 0 22px -6px var(--neon-magenta)" }}>
+            {exporting ? "Exporting…" : "↓ PDF"}
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">From</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">To</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Status</span>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}
+            className="mt-1 w-full rounded-xl border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary">
+            <option value="all">All</option>
+            <option value="attended">Attended</option>
+            <option value="missed">Missed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="holiday">Holiday</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Subject</span>
+          <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary">
+            <option value="all">All subjects</option>
+            {subjects.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {/* Printable region */}
+      <div ref={printRef} className="mt-6 rounded-2xl p-4 sm:p-6" style={{ background: "oklch(0.14 0.03 275)" }}>
+        <div className="mb-4 border-b border-border pb-3">
+          <div className="text-lg font-bold text-foreground">AttendEdge · Attendance Report</div>
+          <div className="text-xs text-muted-foreground">
+            {from || detailed.startDate} → {to || todayISO()}
+            {subjectFilter !== "all" && ` · ${subjectFilter}`}
+            {statusFilter !== "all" && ` · ${statusFilter}`}
+          </div>
+        </div>
+
+        {/* Summary tiles */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <SummaryTile label="Attendance" value={`${totals.pct}%`} color="var(--neon-cyan)" />
+          <SummaryTile label="Attended" value={totals.attended} color="var(--color-success)" />
+          <SummaryTile label="Missed" value={totals.missed} color="var(--color-danger)" />
+          <SummaryTile label="Cancelled" value={totals.cancelled} color="var(--muted-foreground)" />
+          <SummaryTile label="Holidays" value={totals.holiday} color="var(--neon-magenta)" />
+        </div>
+
+        {/* Per subject */}
+        <h3 className="mt-6 mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Per subject</h3>
+        {perSubject.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No data for these filters.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">Subject</th>
+                  <th className="px-3 py-2 text-right">Attended</th>
+                  <th className="px-3 py-2 text-right">Missed</th>
+                  <th className="px-3 py-2 text-right">Cancelled</th>
+                  <th className="px-3 py-2 text-right">Total</th>
+                  <th className="px-3 py-2 text-right">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perSubject.map((r) => {
+                  const c = r.pct >= 75 ? "var(--color-success)" : r.pct >= 65 ? "var(--color-warning)" : "var(--color-danger)";
+                  return (
+                    <tr key={r.subject} className="border-t border-border">
+                      <td className="px-3 py-2 font-medium text-foreground">{r.subject}</td>
+                      <td className="px-3 py-2 text-right text-foreground">{r.attended}</td>
+                      <td className="px-3 py-2 text-right text-foreground">{r.missed}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{r.cancelled}</td>
+                      <td className="px-3 py-2 text-right text-foreground">{r.total}</td>
+                      <td className="px-3 py-2 text-right font-bold" style={{ color: c }}>{r.pct}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Detailed log */}
+        <h3 className="mt-6 mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-muted-foreground">Full log</h3>
+        {filtered.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No entries.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2">Day</th>
+                  <th className="px-3 py-2">Period</th>
+                  <th className="px-3 py-2">Subject</th>
+                  <th className="px-3 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((e, i) => (
+                  <tr key={`${e.iso}-${e.periodIdx}-${i}`} className="border-t border-border">
+                    <td className="px-3 py-1.5 text-foreground">{e.dateLabel}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{e.day}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{e.periodLabel}</td>
+                    <td className="px-3 py-1.5 text-foreground">{e.subject}</td>
+                    <td className="px-3 py-1.5">
+                      <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest"
+                        style={{
+                          color: statusColors[e.status],
+                          background: `color-mix(in oklab, ${statusColors[e.status]} 15%, transparent)`,
+                          border: `1px solid color-mix(in oklab, ${statusColors[e.status]} 40%, transparent)`,
+                        }}>
+                        {e.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="mt-4 text-[10px] text-muted-foreground">
+          Generated {new Date().toLocaleString()} · Threshold 75%
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SummaryTile({ label, value, color }: { label: string; value: number | string; color: string }) {
+  return (
+    <div className="rounded-xl border p-3 tilt-3d"
+      style={{
+        borderColor: `color-mix(in oklab, ${color} 40%, transparent)`,
+        background: `color-mix(in oklab, ${color} 8%, transparent)`,
+        boxShadow: `0 0 24px -14px ${color}`,
+      }}>
+      <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-bold" style={{ color, textShadow: `0 0 16px ${color}` }}>{value}</div>
+    </div>
+  );
+}
+
