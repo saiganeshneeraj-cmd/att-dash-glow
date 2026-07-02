@@ -833,10 +833,11 @@ function RowFragment({ day, row, onChange }: { day: DayKey; row: string[]; onCha
    Daily Log
    ============================================================ */
 function LogPanel({
-  detailed, setDetailed,
+  detailed, setDetailed, captureUndo,
 }: {
   detailed: DetailedData;
   setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
+  captureUndo: (label: string) => void;
 }) {
   const holidaySet = useMemo(() => new Set(detailed.holidays), [detailed.holidays]);
 
@@ -859,17 +860,20 @@ function LogPanel({
   }, [detailed.startDate, detailed.timetable]);
 
   const setClassState = useCallback((iso: string, idx: number, st: "attended" | "missed" | "cancelled") => {
+    captureUndo(st === "cancelled" ? "Class cancelled" : st === "attended" ? "Marked attended" : "Marked absent");
     setDetailed((d) => ({ ...d, states: { ...d.states, [`${iso}__${idx}`]: st } }));
-  }, [setDetailed]);
+  }, [setDetailed, captureUndo]);
 
   const toggleHoliday = useCallback((iso: string) => {
+    captureUndo("Holiday toggled");
     setDetailed((d) => {
       const has = d.holidays.includes(iso);
       return { ...d, holidays: has ? d.holidays.filter((x) => x !== iso) : [...d.holidays, iso] };
     });
-  }, [setDetailed]);
+  }, [setDetailed, captureUndo]);
 
   const markDay = useCallback((iso: string, day: DayKey, st: "attended" | "missed") => {
+    captureUndo(st === "attended" ? "Whole day marked present" : "Whole day marked absent");
     setDetailed((d) => {
       const row = d.timetable[day];
       const next = { ...d.states };
