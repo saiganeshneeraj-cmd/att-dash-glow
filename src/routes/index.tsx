@@ -453,14 +453,42 @@ function Header({
           ))}
         </div>
 
-        <button onClick={onExport} title="Download backup"
-          className="rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-cyan)]">
-          ↓ Export
-        </button>
-        <button onClick={() => fileRef.current?.click()} title="Restore backup"
-          className="rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-magenta)]">
-          ↑ Import
-        </button>
+        <div ref={menuRef} className="relative">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            disabled={!!busy}
+            className="press-card rounded-full px-4 py-2 text-xs font-bold text-primary-foreground transition disabled:opacity-60"
+            style={{ background: "var(--gradient-primary)", boxShadow: "0 0 18px -6px var(--neon-magenta)" }}
+            title="Download attendance report"
+          >
+            {busy === "pdf" ? "Building PDF…" : busy === "img" ? "Building image…" : busy === "share" ? "Preparing…" : "↓ Download"}
+          </button>
+          {menuOpen && (
+            <div className="animate-toast-in absolute right-0 top-full z-30 mt-2 w-56 rounded-2xl border border-primary/30 bg-popover p-1.5 shadow-2xl backdrop-blur-xl">
+              <button onClick={doPdf} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>📄</span><div><div className="font-semibold">PDF report</div><div className="text-[10px] text-muted-foreground">Full summary + class log</div></div>
+              </button>
+              <button onClick={doImg} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>🖼️</span><div><div className="font-semibold">Image (JPG)</div><div className="text-[10px] text-muted-foreground">Shareable card</div></div>
+              </button>
+              <button onClick={doShare} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>🔗</span><div><div className="font-semibold">Share / copy</div><div className="text-[10px] text-muted-foreground">WhatsApp-ready text</div></div>
+              </button>
+              <div className="my-1 h-px bg-border" />
+              <button onClick={() => { setMenuOpen(false); onExport(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>💾</span><div><div className="font-semibold">JSON backup</div><div className="text-[10px] text-muted-foreground">Move data between devices</div></div>
+              </button>
+              <button onClick={() => { setMenuOpen(false); fileRef.current?.click(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
+                <span>📥</span><div><div className="font-semibold">Import backup</div><div className="text-[10px] text-muted-foreground">Restore from JSON</div></div>
+              </button>
+            </div>
+          )}
+          {shareMsg && (
+            <div className="animate-toast-in absolute right-0 top-full mt-2 rounded-full border border-success/40 bg-card px-3 py-1.5 text-xs text-success shadow-lg">
+              {shareMsg}
+            </div>
+          )}
+        </div>
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.currentTarget.value = ""; }} />
 
