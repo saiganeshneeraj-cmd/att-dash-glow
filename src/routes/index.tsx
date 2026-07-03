@@ -1270,9 +1270,10 @@ function LogPanel({
     <div className="mt-5 animate-fade-in">
       {StartDateToolbar}
 
-      {/* Day carousel — jump directly to any day */}
-      <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-2"
+      {/* Day carousel — sticky so it stays visible while scrolling long logs */}
+      <div className="sticky top-0 z-20 -mx-1 mb-3 flex gap-2 overflow-x-auto rounded-2xl border border-border/40 bg-background/70 px-2 py-2 backdrop-blur-md transition-colors duration-200"
         style={{ scrollSnapType: "x mandatory" }}>
+
         {dates.map(({ iso, day, label }) => {
           const isToday = iso === todayIsoStr;
           const isHoliday = holidaySet.has(iso);
