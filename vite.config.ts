@@ -11,7 +11,17 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    // Hardcoded publishable Supabase credentials so the app works on any host
+    // (Vercel, Netlify, etc.) without setting env vars. These are the public
+    // anon key + URL — safe to ship; row-level security protects the data.
+    define: {
+      "process.env.SUPABASE_URL": JSON.stringify("https://mozrwsrqhbfmkmnhvxjm.supabase.co"),
+      "process.env.SUPABASE_PUBLISHABLE_KEY": JSON.stringify("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1venJ3c3JxaGJmbWttbmh2eGptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5OTY2NDgsImV4cCI6MjA5ODU3MjY0OH0.SGS07DylFz77-2-iKoW4FO2Ts3FSMygQHD5zEsNSwIA"),
+      "import.meta.env.VITE_SUPABASE_URL": JSON.stringify("https://mozrwsrqhbfmkmnhvxjm.supabase.co"),
+      "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1venJ3c3JxaGJmbWttbmh2eGptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5OTY2NDgsImV4cCI6MjA5ODU3MjY0OH0.SGS07DylFz77-2-iKoW4FO2Ts3FSMygQHD5zEsNSwIA"),
+    },
     plugins: [
+
       VitePWA({
         registerType: "autoUpdate",
         injectRegister: null,
