@@ -453,7 +453,7 @@ function AttendancePage() {
   }, []);
 
   return (
-    <main className="relative min-h-screen w-full overflow-hidden px-4 py-6 sm:px-6 sm:py-10">
+    <main className="relative min-h-screen w-full overflow-x-hidden px-3 py-5 sm:px-6 sm:py-10">
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="animate-float absolute -left-32 top-10 h-96 w-96 rounded-full opacity-40 blur-3xl" style={{ background: "var(--neon-cyan)" }} />
         <div className="animate-float absolute -right-40 top-1/3 h-[28rem] w-[28rem] rounded-full opacity-30 blur-3xl" style={{ background: "var(--neon-magenta)", animationDelay: "-4s" }} />
@@ -514,30 +514,24 @@ function AttendancePage() {
    ============================================================ */
 function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip: () => void }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in">
-      <div className="glass-neon relative w-full max-w-md overflow-hidden rounded-3xl p-6 sm:p-8 animate-pop-in"
+    <div className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto bg-black/70 px-3 py-4 backdrop-blur-sm animate-fade-in sm:items-center sm:px-4 sm:py-8">
+      <div className="glass-neon relative w-full max-w-md overflow-hidden rounded-3xl p-5 sm:p-7 animate-pop-in max-h-[92vh]"
         style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
           style={{ background: "var(--neon-magenta)" }} />
         <div className="pointer-events-none absolute -left-10 -bottom-10 h-40 w-40 rounded-full blur-3xl opacity-50"
           style={{ background: "var(--neon-cyan)" }} />
         <div className="relative">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-3xl shadow-xl"
-            style={{ background: "var(--gradient-primary)" }}>🔔</div>
-          <h2 className="mt-4 text-center text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
-            Stay above 75% — automatically
-          </h2>
-          <p className="mt-2 text-center text-sm text-muted-foreground">
-            To keep your attendance safe, this tracker defaults to sending daily updates. Please allow notifications
-            to enable your <span className="text-primary font-semibold">automated morning schedule</span> and
-            <span className="text-primary font-semibold"> evening logging alerts</span>.
-          </p>
-          <ul className="mt-4 space-y-2 text-xs text-muted-foreground">
-            <li className="flex items-start gap-2"><span>☀️</span><span><b className="text-foreground">8:00 AM</b> — today's classes + live attendance %</span></li>
-            <li className="flex items-start gap-2"><span>📝</span><span><b className="text-foreground">6:00 PM</b> — reminder to log attended / missed</span></li>
-            <li className="flex items-start gap-2"><span>⚠️</span><span><b className="text-foreground">Proximity alerts</b> when you're about to drop below 75%</span></li>
-          </ul>
-          <div className="mt-6 flex flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-2xl shadow-xl"
+              style={{ background: "var(--gradient-primary)" }}>🔔</div>
+            <h2 className="min-w-0 text-lg font-bold text-foreground sm:text-xl" style={{ fontFamily: "var(--font-display)" }}>
+              Stay above 75% — automatically
+            </h2>
+          </div>
+
+          {/* Actions first so they are visible without scrolling */}
+          <div className="mt-4 flex flex-col gap-2">
             <button onClick={onEnable}
               className="w-full rounded-xl px-4 py-3 text-sm font-bold text-primary-foreground shadow-lg transition hover:brightness-110"
               style={{ background: "var(--gradient-primary)", boxShadow: "0 0 24px -4px var(--neon-magenta)" }}>
@@ -548,8 +542,17 @@ function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip
               Not now
             </button>
           </div>
+
+          <p className="mt-4 text-sm text-muted-foreground">
+            Get daily updates so your attendance never quietly slips.
+          </p>
+          <ul className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+            <li className="flex items-start gap-2"><span>☀️</span><span><b className="text-foreground">8:00 AM</b> — today's classes + live attendance %</span></li>
+            <li className="flex items-start gap-2"><span>📝</span><span><b className="text-foreground">6:00 PM</b> — reminder to log attended / missed</span></li>
+            <li className="flex items-start gap-2"><span>⚠️</span><span><b className="text-foreground">Proximity alerts</b> when you're about to drop below 75%</span></li>
+          </ul>
           <p className="mt-3 text-center text-[10px] text-muted-foreground">
-            You can toggle alerts anytime from the dashboard.
+            You can toggle alerts anytime from the header.
           </p>
         </div>
       </div>
@@ -683,7 +686,7 @@ function Header({
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.currentTarget.value = ""; }} />
 
-        {notifyCapable && (
+        {hydrated && notifyCapable && (
           <button
             onClick={() => onToggleNotify(!notifyEnabled)}
             title={notifyEnabled ? "Notifications ON — click to turn off" : "Turn on daily notifications"}
@@ -1186,26 +1189,102 @@ function LogPanel({
     });
   }, [setDetailed]);
 
+  // Refs to each day card for the carousel jump-to
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const jumpToDay = useCallback((iso: string) => {
+    const el = cardRefs.current[iso];
+    const container = scrollerRef.current;
+    if (!el || !container) return;
+    container.scrollTo({ top: el.offsetTop - container.offsetTop - 8, behavior: "smooth" });
+  }, []);
+
+  const todayIsoStr = todayISO();
+
+  // Start Date fallback toolbar — always visible inside Daily Log
+  const StartDateToolbar = (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/30 p-3">
+      <label className="flex min-w-0 items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        <span>📅 Class Start Date</span>
+        <input
+          type="date"
+          value={detailed.startDate}
+          max={todayIsoStr}
+          onChange={(e) => setDetailed((d) => ({ ...d, startDate: e.target.value }))}
+          className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs font-medium normal-case tracking-normal text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/40"
+        />
+      </label>
+      <span className="text-[10px] text-muted-foreground">
+        Forgot to set it earlier? Update anytime — the log rebuilds instantly.
+      </span>
+    </div>
+  );
+
   if (dates.length === 0) {
     return (
-      <div className="mt-6 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        Fill in subjects in the Setup tab (or load a section preset) to generate your daily log.
+      <div className="mt-5 animate-fade-in">
+        {StartDateToolbar}
+        <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          Fill in subjects in the Setup tab (or load a section preset) to generate your daily log.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mt-5 max-h-[640px] space-y-5 overflow-y-auto pr-1 animate-fade-in">
-      {dates.map(({ iso, day, label }) => (
-        <DayCard key={iso} iso={iso} day={day} label={label}
-          isHoliday={holidaySet.has(iso)}
-          row={detailed.timetable[day]}
-          periods={detailed.periods}
-          states={detailed.states}
-          onSetState={setClassState}
-          onToggleHoliday={toggleHoliday}
-          onMarkDay={markDay} />
-      ))}
+    <div className="mt-5 animate-fade-in">
+      {StartDateToolbar}
+
+      {/* Day carousel — jump directly to any day */}
+      <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-2"
+        style={{ scrollSnapType: "x mandatory" }}>
+        {dates.map(({ iso, day, label }) => {
+          const isToday = iso === todayIsoStr;
+          const isHoliday = holidaySet.has(iso);
+          const dateNum = label.split(", ")[1]?.split(" ").slice(-1)[0] ?? "";
+          return (
+            <button
+              key={iso}
+              onClick={() => jumpToDay(iso)}
+              className={`press-card group flex shrink-0 flex-col items-center rounded-2xl border px-3 py-2 text-center transition ${
+                isToday
+                  ? "border-transparent text-primary-foreground"
+                  : "border-border bg-background/40 text-foreground hover:border-primary"
+              }`}
+              style={{
+                scrollSnapAlign: "start",
+                minWidth: 62,
+                background: isToday ? "var(--gradient-primary)" : undefined,
+                boxShadow: isToday ? "0 0 20px -6px var(--neon-cyan)" : undefined,
+              }}
+              title={label}
+            >
+              <span className={`text-[9px] font-bold uppercase tracking-widest ${isToday ? "opacity-90" : "text-muted-foreground"}`}>{day}</span>
+              <span className="text-lg font-black leading-none" style={{ fontFamily: "var(--font-display)" }}>{dateNum}</span>
+              {isHoliday && <span className="mt-0.5 text-[8px] opacity-80">Holiday</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div ref={scrollerRef} className="max-h-[640px] space-y-5 overflow-y-auto pr-1">
+        {dates.map(({ iso, day, label }) => (
+          <div
+            key={iso}
+            ref={(el) => { cardRefs.current[iso] = el; }}
+            style={{ contentVisibility: "auto", containIntrinsicSize: "320px" } as React.CSSProperties}
+          >
+            <DayCard iso={iso} day={day} label={label}
+              isHoliday={holidaySet.has(iso)}
+              row={detailed.timetable[day]}
+              periods={detailed.periods}
+              states={detailed.states}
+              onSetState={setClassState}
+              onToggleHoliday={toggleHoliday}
+              onMarkDay={markDay} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
