@@ -4,6 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, signOut } from "@/hooks/use-auth";
 import { PRESETS, type PresetTimetable } from "@/lib/presets";
 import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText } from "@/lib/report";
+import {
+  loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
+  scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
+} from "@/lib/notifications";
 
 export const Route = createFileRoute("/")({
   component: AttendancePage,
