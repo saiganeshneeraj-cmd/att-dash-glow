@@ -1151,6 +1151,7 @@ function RoomsHub({ user, social, setSocial, stats, detailed, roadmap, wrapped, 
   const createPoll = useServerFn(createMassBunkPoll);
   const votePoll = useServerFn(voteMassBunkPoll);
   const sendSos = useServerFn(sendSosBroadcast);
+  const deleteRoom = useServerFn(deleteAttendanceRoom);
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [snapshot, setSnapshot] = useState<{ room: RoomRow; members: RoomMemberRow[]; polls: PollRow[]; votes: VoteRow[]; sos: SosRow[] } | null>(null);
