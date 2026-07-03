@@ -4,6 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, signOut } from "@/hooks/use-auth";
 import { PRESETS, type PresetTimetable } from "@/lib/presets";
 import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText } from "@/lib/report";
+import {
+  loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
+  scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
+} from "@/lib/notifications";
 
 export const Route = createFileRoute("/")({
   component: AttendancePage,
@@ -318,6 +322,136 @@ function AttendancePage() {
   const target = total === 0 ? 0 : Math.max(0, Math.ceil(3 * total - 4 * attended));
   const safe = total === 0 ? 0 : Math.max(0, Math.floor((4 * attended - 3 * total) / 3));
 
+  // ---- Notifications engine ----
+  const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>({ enabled: false, onboarded: false });
+  const [showOnboard, setShowOnboard] = useState(false);
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const p = loadNotifyPrefs();
+    setNotifyPrefs(p);
+    if (!p.onboarded && isNotificationCapable()) {
+      const t = setTimeout(() => setShowOnboard(true), 900);
+      return () => clearTimeout(t);
+    }
+  }, [hydrated]);
+
+  const computeTodayInfo = useCallback(() => {
+    const s = stateRef.current;
+    const d = s.detailed;
+    const now = new Date();
+    const dk = DOW_TO_DAY[now.getDay()];
+    const iso = todayISO();
+    let classesToday = 0;
+    let loggedToday = false;
+    if (dk && !d.holidays.includes(iso)) {
+      d.timetable[dk].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        classesToday += 1;
+        if (d.states[`${iso}__${idx}`]) loggedToday = true;
+      });
+    }
+    return { classesToday, loggedToday, pct };
+  }, [pct]);
+
+  const projectProximity = useCallback(() => {
+    const s = stateRef.current;
+    if (s.mode !== "detailed") return false;
+    if (total <= 0) return false;
+    // Count non-logged classes in next 48h that would move the needle
+    const now = new Date();
+    let future = 0;
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(now); d.setDate(d.getDate() + i); d.setHours(0, 0, 0, 0);
+      const dk = DOW_TO_DAY[d.getDay()];
+      if (!dk) continue;
+      const iso = d.toISOString().slice(0, 10);
+      if (s.detailed.holidays.includes(iso)) continue;
+      s.detailed.timetable[dk].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        if (s.detailed.states[`${iso}__${idx}`]) return;
+        future += 1;
+      });
+    }
+    if (future === 0) return false;
+    // Worst case: miss one upcoming class → attended stays, total+1
+    const projPct = (attended / (total + 1)) * 100;
+    return projPct < 75;
+  }, [attended, total]);
+
+  // Schedule alerts when enabled
+  useEffect(() => {
+    if (!hydrated || !notifyPrefs.enabled) return;
+    if (!isNotificationCapable() || Notification.permission !== "granted") return;
+
+    const cancels: Array<() => void> = [];
+    cancels.push(scheduleDaily(8, 0, () => {
+      const info = computeTodayInfo();
+      const msg = info.classesToday > 0
+        ? `You have ${info.classesToday} scheduled class${info.classesToday === 1 ? "" : "es"} today. Attendance ${info.pct}% — stay above 75%!`
+        : `No scheduled classes today. Attendance ${info.pct}%.`;
+      fireNotification("Good morning ☀️", msg, "attendedge-morning");
+    }));
+    cancels.push(scheduleDaily(18, 0, () => {
+      const info = computeTodayInfo();
+      if (info.classesToday > 0 && !info.loggedToday) {
+        fireNotification("Time to log today's attendance 📝",
+          "Tap here to mark today's classes as attended, missed, or cancelled.",
+          "attendedge-evening");
+      }
+    }));
+    // Proximity: check hourly + once on start
+    const checkProx = () => {
+      if (projectProximity()) {
+        const today = todayISO();
+        const p = loadNotifyPrefs();
+        if (p.lastProximity === today) return;
+        saveNotifyPrefs({ lastProximity: today });
+        fireNotification("⚠️ Proximity Alert",
+          "Missing an upcoming class in the next 48 hours may drop you below 75%. Plan your leaves carefully!",
+          "attendedge-proximity");
+      }
+    };
+    const t = window.setTimeout(checkProx, 5000);
+    cancels.push(() => window.clearTimeout(t));
+    cancels.push(scheduleInterval(60 * 60 * 1000, checkProx));
+
+    return () => { cancels.forEach((c) => c()); };
+  }, [hydrated, notifyPrefs.enabled, computeTodayInfo, projectProximity]);
+
+  const enableNotifications = useCallback(async () => {
+    const perm = await requestPermission();
+    const enabled = perm === "granted";
+    const next = { enabled, onboarded: true };
+    saveNotifyPrefs(next);
+    setNotifyPrefs((p) => ({ ...p, ...next }));
+    setShowOnboard(false);
+    if (enabled) {
+      fireNotification("Notifications enabled 🔔",
+        "You'll get morning previews at 8AM and logging reminders at 6PM.", "attendedge-welcome");
+    }
+  }, []);
+
+  const skipOnboard = useCallback(() => {
+    saveNotifyPrefs({ onboarded: true, enabled: false });
+    setNotifyPrefs((p) => ({ ...p, onboarded: true, enabled: false }));
+    setShowOnboard(false);
+  }, []);
+
+  const toggleNotifications = useCallback(async (want: boolean) => {
+    if (want) {
+      const perm = await requestPermission();
+      const enabled = perm === "granted";
+      saveNotifyPrefs({ enabled, onboarded: true });
+      setNotifyPrefs((p) => ({ ...p, enabled, onboarded: true }));
+    } else {
+      saveNotifyPrefs({ enabled: false });
+      setNotifyPrefs((p) => ({ ...p, enabled: false }));
+    }
+  }, []);
+
   return (
     <main className="relative min-h-screen w-full overflow-hidden px-4 py-6 sm:px-6 sm:py-10">
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
@@ -333,7 +467,11 @@ function AttendancePage() {
           user={user} syncStatus={syncStatus}
           onExport={exportData} onImport={importData}
           state={state}
+          notifyEnabled={notifyPrefs.enabled}
+          onToggleNotify={toggleNotifications}
+          notifyCapable={isNotificationCapable()}
         />
+
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <HeroRing pct={pct} statusText={statusText} statusColor={statusColor} total={total} attended={attended} />
@@ -364,7 +502,58 @@ function AttendancePage() {
       </div>
 
       <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
+      {showOnboard && (
+        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} />
+      )}
     </main>
+  );
+}
+
+/* ============================================================
+   Notification onboarding modal
+   ============================================================ */
+function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in">
+      <div className="glass-neon relative w-full max-w-md overflow-hidden rounded-3xl p-6 sm:p-8 animate-pop-in"
+        style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
+        <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
+          style={{ background: "var(--neon-magenta)" }} />
+        <div className="pointer-events-none absolute -left-10 -bottom-10 h-40 w-40 rounded-full blur-3xl opacity-50"
+          style={{ background: "var(--neon-cyan)" }} />
+        <div className="relative">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-3xl shadow-xl"
+            style={{ background: "var(--gradient-primary)" }}>🔔</div>
+          <h2 className="mt-4 text-center text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+            Stay above 75% — automatically
+          </h2>
+          <p className="mt-2 text-center text-sm text-muted-foreground">
+            To keep your attendance safe, this tracker defaults to sending daily updates. Please allow notifications
+            to enable your <span className="text-primary font-semibold">automated morning schedule</span> and
+            <span className="text-primary font-semibold"> evening logging alerts</span>.
+          </p>
+          <ul className="mt-4 space-y-2 text-xs text-muted-foreground">
+            <li className="flex items-start gap-2"><span>☀️</span><span><b className="text-foreground">8:00 AM</b> — today's classes + live attendance %</span></li>
+            <li className="flex items-start gap-2"><span>📝</span><span><b className="text-foreground">6:00 PM</b> — reminder to log attended / missed</span></li>
+            <li className="flex items-start gap-2"><span>⚠️</span><span><b className="text-foreground">Proximity alerts</b> when you're about to drop below 75%</span></li>
+          </ul>
+          <div className="mt-6 flex flex-col gap-2">
+            <button onClick={onEnable}
+              className="w-full rounded-xl px-4 py-3 text-sm font-bold text-primary-foreground shadow-lg transition hover:brightness-110"
+              style={{ background: "var(--gradient-primary)", boxShadow: "0 0 24px -4px var(--neon-magenta)" }}>
+              Allow notifications
+            </button>
+            <button onClick={onSkip}
+              className="w-full rounded-xl border border-border bg-card/40 px-4 py-2 text-xs text-muted-foreground hover:text-foreground">
+              Not now
+            </button>
+          </div>
+          <p className="mt-3 text-center text-[10px] text-muted-foreground">
+            You can toggle alerts anytime from the dashboard.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -373,10 +562,12 @@ function AttendancePage() {
    ============================================================ */
 function Header({
   mode, setMode, hydrated, user, syncStatus, onExport, onImport, state,
+  notifyEnabled, onToggleNotify, notifyCapable,
 }: {
   mode: Mode; setMode: (m: Mode) => void; hydrated: boolean;
   user: ReturnType<typeof useAuth>["user"]; syncStatus: string;
   onExport: () => void; onImport: (f: File) => void; state: AppState;
+  notifyEnabled: boolean; onToggleNotify: (v: boolean) => void; notifyCapable: boolean;
 }) {
   const [today, setToday] = useState<string>("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -492,20 +683,29 @@ function Header({
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.currentTarget.value = ""; }} />
 
+        {notifyCapable && (
+          <button
+            onClick={() => onToggleNotify(!notifyEnabled)}
+            title={notifyEnabled ? "Notifications ON — click to turn off" : "Turn on daily notifications"}
+            className={`press-card inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${
+              notifyEnabled
+                ? "border-primary/60 bg-primary/10 text-primary shadow-[0_0_18px_-6px_var(--neon-cyan)]"
+                : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
+            }`}
+          >
+            <span>{notifyEnabled ? "🔔" : "🔕"}</span>
+            <span className="hidden sm:inline">Alerts {notifyEnabled ? "On" : "Off"}</span>
+            <span
+              aria-hidden
+              className={`relative inline-block h-4 w-7 rounded-full transition-colors ${notifyEnabled ? "bg-primary" : "bg-muted"}`}
+            >
+              <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-background transition-all ${notifyEnabled ? "left-3.5" : "left-0.5"}`} />
+            </span>
+          </button>
+        )}
+
         {user ? (
-          <div className="group relative">
-            <button className="flex h-10 items-center gap-2 rounded-full border border-border bg-card px-2 pr-3 transition hover:border-primary">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-primary-foreground"
-                style={{ background: "var(--gradient-primary)" }}>{initial}</span>
-              <span className="hidden max-w-[140px] truncate text-xs text-foreground sm:inline">{user.email}</span>
-            </button>
-            <div className="absolute right-0 top-full z-20 mt-2 hidden w-44 rounded-xl border border-border bg-popover p-1 shadow-xl group-hover:block">
-              <div className="truncate px-3 py-2 text-[11px] text-muted-foreground">{user.email}</div>
-              <button onClick={() => signOut()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
-                Sign out
-              </button>
-            </div>
-          </div>
+          <UserMenu user={user} initial={initial} />
         ) : (
           <Link to="/auth"
             className="rounded-full border border-border bg-card px-4 py-2 text-xs font-semibold text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-cyan)]">
@@ -514,6 +714,40 @@ function Header({
         )}
       </div>
     </header>
+  );
+}
+
+function UserMenu({ user, initial }: { user: { email?: string | null } | null; initial: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    if (open) document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-10 items-center gap-2 rounded-full border border-border bg-card px-2 pr-3 transition hover:border-primary"
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-primary-foreground"
+          style={{ background: "var(--gradient-primary)" }}>{initial}</span>
+        <span className="hidden max-w-[140px] truncate text-xs text-foreground sm:inline">{user?.email}</span>
+        <span className="text-[10px] text-muted-foreground">▾</span>
+      </button>
+      {open && (
+        <div className="animate-toast-in absolute right-0 top-full z-30 mt-2 w-52 rounded-xl border border-border bg-popover p-1.5 shadow-xl backdrop-blur-xl">
+          <div className="truncate px-3 py-2 text-[11px] text-muted-foreground">{user?.email}</div>
+          <button
+            onClick={() => { setOpen(false); signOut(); }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-destructive hover:bg-destructive/10"
+          >
+            <span>⎋</span> Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
