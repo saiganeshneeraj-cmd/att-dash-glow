@@ -829,14 +829,6 @@ function NotifyOnboardModal({ onEnable, onSkip, info }: {
     </div>
   );
 }
-          <p className="mt-3 text-center text-[10px] text-muted-foreground">
-            You can toggle alerts anytime from the header.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ============================================================
    Header
