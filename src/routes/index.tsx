@@ -743,7 +743,7 @@ function AttendancePage() {
    ============================================================ */
 function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip: () => void }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[60] flex items-end justify-center bg-black/55 px-3 pb-3 pt-10 backdrop-blur-sm animate-fade-in sm:pb-5">
+    <div className="fixed inset-x-0 top-0 z-[60] flex items-start justify-center bg-black/55 px-3 pb-10 pt-3 backdrop-blur-sm animate-fade-in sm:pt-5">
       <div className="glass-neon relative w-full max-w-lg overflow-hidden rounded-3xl p-4 sm:p-5 animate-toast-in max-h-[72vh] overflow-y-auto"
         style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
@@ -1058,22 +1058,6 @@ function InsightsPanel({ status, target, safe, total, streak, badge }: {
         detail={total === 0 ? "Enter data to see your target." : `Attend the next ${target} classes consecutively to reach 75%.`} />
       <InsightCard active={safeActive} color="var(--color-warning)" eyebrow="Available Bunk Coins" big={safe} unit={safe === 1 ? "coin" : "coins"}
         detail={total === 0 ? "Enter data to mint your budget." : `Each marked absence spends 1 coin. Keep coins above zero.`} />
-      <div className="glass tilt-3d relative overflow-hidden p-6 sm:col-span-2">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Streak Wallet</div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-5xl font-bold text-gradient">{streak}</span>
-              <span className="text-sm text-muted-foreground">day streak</span>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-right">
-            <div className="text-3xl">{badge.icon}</div>
-            <div className="text-sm font-bold text-foreground">{badge.label}</div>
-            <div className="text-[10px] text-muted-foreground">Next badge at {badge.next} days</div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
