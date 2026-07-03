@@ -567,8 +567,14 @@ function AttendancePage() {
         if (d.states[`${iso}__${idx}`]) loggedToday = true;
       });
     }
-    return { classesToday, loggedToday, pct };
-  }, [pct]);
+    // If user skips ALL of today's remaining classes: attended stays, total grows by classesToday
+    const projMissAll = classesToday > 0 && total >= 0
+      ? pctFor(attended, total + classesToday)
+      : pct;
+    const drop = Math.max(0, Math.round((pct - projMissAll) * 10) / 10);
+    return { classesToday, loggedToday, pct, projMissAll, drop };
+  }, [pct, attended, total]);
+
 
   const projectProximity = useCallback(() => {
     const s = stateRef.current;
