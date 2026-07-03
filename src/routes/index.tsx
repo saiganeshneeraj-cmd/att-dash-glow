@@ -502,7 +502,58 @@ function AttendancePage() {
       </div>
 
       <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
+      {showOnboard && (
+        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} />
+      )}
     </main>
+  );
+}
+
+/* ============================================================
+   Notification onboarding modal
+   ============================================================ */
+function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in">
+      <div className="glass-neon relative w-full max-w-md overflow-hidden rounded-3xl p-6 sm:p-8 animate-pop-in"
+        style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
+        <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
+          style={{ background: "var(--neon-magenta)" }} />
+        <div className="pointer-events-none absolute -left-10 -bottom-10 h-40 w-40 rounded-full blur-3xl opacity-50"
+          style={{ background: "var(--neon-cyan)" }} />
+        <div className="relative">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl text-3xl shadow-xl"
+            style={{ background: "var(--gradient-primary)" }}>🔔</div>
+          <h2 className="mt-4 text-center text-xl font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+            Stay above 75% — automatically
+          </h2>
+          <p className="mt-2 text-center text-sm text-muted-foreground">
+            To keep your attendance safe, this tracker defaults to sending daily updates. Please allow notifications
+            to enable your <span className="text-primary font-semibold">automated morning schedule</span> and
+            <span className="text-primary font-semibold"> evening logging alerts</span>.
+          </p>
+          <ul className="mt-4 space-y-2 text-xs text-muted-foreground">
+            <li className="flex items-start gap-2"><span>☀️</span><span><b className="text-foreground">8:00 AM</b> — today's classes + live attendance %</span></li>
+            <li className="flex items-start gap-2"><span>📝</span><span><b className="text-foreground">6:00 PM</b> — reminder to log attended / missed</span></li>
+            <li className="flex items-start gap-2"><span>⚠️</span><span><b className="text-foreground">Proximity alerts</b> when you're about to drop below 75%</span></li>
+          </ul>
+          <div className="mt-6 flex flex-col gap-2">
+            <button onClick={onEnable}
+              className="w-full rounded-xl px-4 py-3 text-sm font-bold text-primary-foreground shadow-lg transition hover:brightness-110"
+              style={{ background: "var(--gradient-primary)", boxShadow: "0 0 24px -4px var(--neon-magenta)" }}>
+              Allow notifications
+            </button>
+            <button onClick={onSkip}
+              className="w-full rounded-xl border border-border bg-card/40 px-4 py-2 text-xs text-muted-foreground hover:text-foreground">
+              Not now
+            </button>
+          </div>
+          <p className="mt-3 text-center text-[10px] text-muted-foreground">
+            You can toggle alerts anytime from the dashboard.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -511,10 +562,12 @@ function AttendancePage() {
    ============================================================ */
 function Header({
   mode, setMode, hydrated, user, syncStatus, onExport, onImport, state,
+  notifyEnabled, onToggleNotify, notifyCapable,
 }: {
   mode: Mode; setMode: (m: Mode) => void; hydrated: boolean;
   user: ReturnType<typeof useAuth>["user"]; syncStatus: string;
   onExport: () => void; onImport: (f: File) => void; state: AppState;
+  notifyEnabled: boolean; onToggleNotify: (v: boolean) => void; notifyCapable: boolean;
 }) {
   const [today, setToday] = useState<string>("");
   const [menuOpen, setMenuOpen] = useState(false);
