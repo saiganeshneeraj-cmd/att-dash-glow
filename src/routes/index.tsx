@@ -322,6 +322,136 @@ function AttendancePage() {
   const target = total === 0 ? 0 : Math.max(0, Math.ceil(3 * total - 4 * attended));
   const safe = total === 0 ? 0 : Math.max(0, Math.floor((4 * attended - 3 * total) / 3));
 
+  // ---- Notifications engine ----
+  const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>({ enabled: false, onboarded: false });
+  const [showOnboard, setShowOnboard] = useState(false);
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const p = loadNotifyPrefs();
+    setNotifyPrefs(p);
+    if (!p.onboarded && isNotificationCapable()) {
+      const t = setTimeout(() => setShowOnboard(true), 900);
+      return () => clearTimeout(t);
+    }
+  }, [hydrated]);
+
+  const computeTodayInfo = useCallback(() => {
+    const s = stateRef.current;
+    const d = s.detailed;
+    const now = new Date();
+    const dk = DOW_TO_DAY[now.getDay()];
+    const iso = todayISO();
+    let classesToday = 0;
+    let loggedToday = false;
+    if (dk && !d.holidays.includes(iso)) {
+      d.timetable[dk].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        classesToday += 1;
+        if (d.states[`${iso}__${idx}`]) loggedToday = true;
+      });
+    }
+    return { classesToday, loggedToday, pct };
+  }, [pct]);
+
+  const projectProximity = useCallback(() => {
+    const s = stateRef.current;
+    if (s.mode !== "detailed") return false;
+    if (total <= 0) return false;
+    // Count non-logged classes in next 48h that would move the needle
+    const now = new Date();
+    let future = 0;
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(now); d.setDate(d.getDate() + i); d.setHours(0, 0, 0, 0);
+      const dk = DOW_TO_DAY[d.getDay()];
+      if (!dk) continue;
+      const iso = d.toISOString().slice(0, 10);
+      if (s.detailed.holidays.includes(iso)) continue;
+      s.detailed.timetable[dk].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        if (s.detailed.states[`${iso}__${idx}`]) return;
+        future += 1;
+      });
+    }
+    if (future === 0) return false;
+    // Worst case: miss one upcoming class → attended stays, total+1
+    const projPct = (attended / (total + 1)) * 100;
+    return projPct < 75;
+  }, [attended, total]);
+
+  // Schedule alerts when enabled
+  useEffect(() => {
+    if (!hydrated || !notifyPrefs.enabled) return;
+    if (!isNotificationCapable() || Notification.permission !== "granted") return;
+
+    const cancels: Array<() => void> = [];
+    cancels.push(scheduleDaily(8, 0, () => {
+      const info = computeTodayInfo();
+      const msg = info.classesToday > 0
+        ? `You have ${info.classesToday} scheduled class${info.classesToday === 1 ? "" : "es"} today. Attendance ${info.pct}% — stay above 75%!`
+        : `No scheduled classes today. Attendance ${info.pct}%.`;
+      fireNotification("Good morning ☀️", msg, "attendedge-morning");
+    }));
+    cancels.push(scheduleDaily(18, 0, () => {
+      const info = computeTodayInfo();
+      if (info.classesToday > 0 && !info.loggedToday) {
+        fireNotification("Time to log today's attendance 📝",
+          "Tap here to mark today's classes as attended, missed, or cancelled.",
+          "attendedge-evening");
+      }
+    }));
+    // Proximity: check hourly + once on start
+    const checkProx = () => {
+      if (projectProximity()) {
+        const today = todayISO();
+        const p = loadNotifyPrefs();
+        if (p.lastProximity === today) return;
+        saveNotifyPrefs({ lastProximity: today });
+        fireNotification("⚠️ Proximity Alert",
+          "Missing an upcoming class in the next 48 hours may drop you below 75%. Plan your leaves carefully!",
+          "attendedge-proximity");
+      }
+    };
+    const t = window.setTimeout(checkProx, 5000);
+    cancels.push(() => window.clearTimeout(t));
+    cancels.push(scheduleInterval(60 * 60 * 1000, checkProx));
+
+    return () => { cancels.forEach((c) => c()); };
+  }, [hydrated, notifyPrefs.enabled, computeTodayInfo, projectProximity]);
+
+  const enableNotifications = useCallback(async () => {
+    const perm = await requestPermission();
+    const enabled = perm === "granted";
+    const next = { enabled, onboarded: true };
+    saveNotifyPrefs(next);
+    setNotifyPrefs((p) => ({ ...p, ...next }));
+    setShowOnboard(false);
+    if (enabled) {
+      fireNotification("Notifications enabled 🔔",
+        "You'll get morning previews at 8AM and logging reminders at 6PM.", "attendedge-welcome");
+    }
+  }, []);
+
+  const skipOnboard = useCallback(() => {
+    saveNotifyPrefs({ onboarded: true, enabled: false });
+    setNotifyPrefs((p) => ({ ...p, onboarded: true, enabled: false }));
+    setShowOnboard(false);
+  }, []);
+
+  const toggleNotifications = useCallback(async (want: boolean) => {
+    if (want) {
+      const perm = await requestPermission();
+      const enabled = perm === "granted";
+      saveNotifyPrefs({ enabled, onboarded: true });
+      setNotifyPrefs((p) => ({ ...p, enabled, onboarded: true }));
+    } else {
+      saveNotifyPrefs({ enabled: false });
+      setNotifyPrefs((p) => ({ ...p, enabled: false }));
+    }
+  }, []);
+
   return (
     <main className="relative min-h-screen w-full overflow-hidden px-4 py-6 sm:px-6 sm:py-10">
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
@@ -337,7 +467,11 @@ function AttendancePage() {
           user={user} syncStatus={syncStatus}
           onExport={exportData} onImport={importData}
           state={state}
+          notifyEnabled={notifyPrefs.enabled}
+          onToggleNotify={toggleNotifications}
+          notifyCapable={isNotificationCapable()}
         />
+
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <HeroRing pct={pct} statusText={statusText} statusColor={statusColor} total={total} attended={attended} />
