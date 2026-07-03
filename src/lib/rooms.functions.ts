@@ -83,28 +83,32 @@ export const joinAttendanceRoom = createServerFn({ method: "POST" })
     stats: memberStatsSchema,
   }).parse(input))
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: room, error: roomError } = await supabaseAdmin
-      .from("attendance_rooms")
-      .select("id, name, invite_code, owner_id, created_at")
-      .eq("invite_code", data.inviteCode)
-      .maybeSingle();
-    if (roomError) throw roomError;
+    const { supabase } = context;
+    const { data: room, error } = await supabase.rpc("join_room_by_code", {
+      _code: data.inviteCode,
+      _display_name: data.displayName,
+      _pct: data.stats.attendancePct,
+      _badge: data.stats.statusBadge,
+      _streak: data.stats.activeStreak,
+      _coins: data.stats.bunkCoins,
+    });
+    if (error) throw new Error(error.message || "Room code not found");
     if (!room) throw new Error("Room code not found");
+    return room as { id: string; name: string; invite_code: string; owner_id: string; created_at: string };
+  });
 
-    const { error: memberError } = await supabase.from("room_members").upsert({
-      room_id: room.id,
-      user_id: userId,
-      display_name: data.displayName,
-      attendance_pct: data.stats.attendancePct,
-      status_badge: data.stats.statusBadge,
-      active_streak: data.stats.activeStreak,
-      bunk_coins: data.stats.bunkCoins,
-      last_seen_at: new Date().toISOString(),
-    }, { onConflict: "room_id,user_id" });
-    if (memberError) throw memberError;
-    return room;
+export const deleteAttendanceRoom = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ roomId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { error } = await supabase
+      .from("attendance_rooms")
+      .delete()
+      .eq("id", data.roomId)
+      .eq("owner_id", userId);
+    if (error) throw error;
+    return { ok: true };
   });
 
 export const getRoomSnapshot = createServerFn({ method: "GET" })
