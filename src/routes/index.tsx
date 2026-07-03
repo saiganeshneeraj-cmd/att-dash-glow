@@ -506,7 +506,9 @@ function AttendancePage() {
         </section>
 
         <section className="mt-6 animate-fade-in">
-          {mode === "quick" ? (
+          {!hydrated ? (
+            <ContentSkeleton />
+          ) : mode === "quick" ? (
             <QuickForm quick={quick} setQuick={setQuick} />
           ) : mode === "history" ? (
             <HistoryView detailed={detailed} />
@@ -522,6 +524,7 @@ function AttendancePage() {
             />
           )}
         </section>
+
 
         <footer className="mt-10 pb-4 text-center text-xs text-muted-foreground">
           {user ? "Synced to your account" : "Saved locally"} · Threshold: 75%
