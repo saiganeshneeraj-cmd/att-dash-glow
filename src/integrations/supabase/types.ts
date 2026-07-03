@@ -240,7 +240,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      join_room_by_code: {
+        Args: {
+          _badge: string
+          _code: string
+          _coins: number
+          _display_name: string
+          _pct: number
+          _streak: number
+        }
+        Returns: {
+          created_at: string
+          id: string
+          invite_code: string
+          name: string
+          owner_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "attendance_rooms"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       [_ in never]: never
