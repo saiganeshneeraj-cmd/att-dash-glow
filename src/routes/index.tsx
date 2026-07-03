@@ -401,6 +401,9 @@ function AttendancePage() {
   const setDetailed = useCallback(
     (updater: DetailedData | ((d: DetailedData) => DetailedData)) =>
       setState((s) => ({ ...s, detailed: typeof updater === "function" ? (updater as any)(s.detailed) : updater })), []);
+  const setSocial = useCallback(
+    (updater: SocialData | ((d: SocialData) => SocialData)) =>
+      setState((s) => ({ ...s, social: typeof updater === "function" ? (updater as any)(s.social) : updater })), []);
 
   const allPresets = useMemo(() => [...PRESETS, ...customPresets], [customPresets]);
   const applyPresetById = useCallback((id: string) => {
@@ -502,12 +505,36 @@ function AttendancePage() {
     return { total: t, attended: a };
   }, [mode, quick, detailed]);
 
-  const pct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+  const pct = pctFor(attended, total);
   const status = pct < 75 ? "danger" : pct < 80 ? "warn" : "good";
   const statusText = status === "danger" ? "In Danger" : status === "warn" ? "On the Edge" : "Good Position";
   const statusColor = status === "danger" ? "var(--color-danger)" : status === "warn" ? "var(--color-warning)" : "var(--color-success)";
   const target = total === 0 ? 0 : Math.max(0, Math.ceil(3 * total - 4 * attended));
-  const safe = total === 0 ? 0 : Math.max(0, Math.floor((4 * attended - 3 * total) / 3));
+  const safe = bunkCoinsFor(attended, total);
+  const activeStreak = useMemo(() => mode === "quick" ? 0 : computeStreak(detailed), [mode, detailed]);
+  const badge = streakBadge(activeStreak);
+  const socialStats = useMemo(() => ({
+    attendancePct: pct,
+    statusBadge: statusBadgeFor(pct),
+    activeStreak,
+    bunkCoins: safe,
+  }), [pct, activeStreak, safe]);
+  const roadmap = useMemo(() => buildRoadmap(detailed, attended, total), [detailed, attended, total]);
+  const wrapped = useMemo(() => computeWrapped(detailed), [detailed]);
+
+  const [badgePopup, setBadgePopup] = useState<{ icon: string; label: string; streak: number } | null>(null);
+  useEffect(() => {
+    if (!hydrated || activeStreak <= 0) return;
+    const milestones = [3, 7, 14, 30, 60, 100];
+    if (!milestones.includes(activeStreak)) return;
+    const key = `attendedge_streak_badge_${activeStreak}`;
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "1");
+    const b = streakBadge(activeStreak);
+    setBadgePopup({ icon: b.icon, label: b.label, streak: activeStreak });
+    const t = window.setTimeout(() => setBadgePopup(null), 5200);
+    return () => window.clearTimeout(t);
+  }, [hydrated, activeStreak]);
 
   // ---- Notifications engine ----
   const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>({ enabled: false, onboarded: false });
@@ -662,7 +689,7 @@ function AttendancePage() {
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <HeroRing pct={pct} statusText={statusText} statusColor={statusColor} total={total} attended={attended} />
-          <InsightsPanel status={status} target={target} safe={safe} total={total} />
+          <InsightsPanel status={status} target={target} safe={safe} total={total} streak={activeStreak} badge={badge} />
         </section>
 
         <section className="mt-6 animate-fade-in">
@@ -672,6 +699,17 @@ function AttendancePage() {
             <QuickForm quick={quick} setQuick={setQuick} />
           ) : mode === "history" ? (
             <HistoryView detailed={detailed} />
+          ) : mode === "rooms" ? (
+            <RoomsHub
+              user={user}
+              social={state.social}
+              setSocial={setSocial}
+              stats={socialStats}
+              detailed={detailed}
+              roadmap={roadmap}
+              wrapped={wrapped}
+              onToggleNotify={toggleNotifications}
+            />
           ) : (
             <DetailedTracker
               detailed={detailed} setDetailed={setDetailed}
@@ -692,6 +730,7 @@ function AttendancePage() {
       </div>
 
       <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
+      <BadgePopup badge={badgePopup} onDismiss={() => setBadgePopup(null)} />
       {showOnboard && (
         <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} />
       )}
@@ -704,8 +743,8 @@ function AttendancePage() {
    ============================================================ */
 function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip: () => void }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto bg-black/70 px-3 py-4 backdrop-blur-sm animate-fade-in sm:items-center sm:px-4 sm:py-8">
-      <div className="glass-neon relative w-full max-w-md overflow-hidden rounded-3xl p-5 sm:p-7 animate-pop-in max-h-[92vh]"
+    <div className="fixed inset-x-0 bottom-0 z-[60] flex items-end justify-center bg-black/55 px-3 pb-3 pt-10 backdrop-blur-sm animate-fade-in sm:pb-5">
+      <div className="glass-neon relative w-full max-w-lg overflow-hidden rounded-3xl p-4 sm:p-5 animate-toast-in max-h-[72vh] overflow-y-auto"
         style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
           style={{ background: "var(--neon-magenta)" }} />
