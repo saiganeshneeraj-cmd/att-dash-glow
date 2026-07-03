@@ -1767,7 +1767,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-background/85 backdrop-blur text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Subject</th>
                   <th className="px-3 py-2">Trend</th>
@@ -1808,7 +1808,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-left text-xs">
-              <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-background/85 backdrop-blur text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Date</th>
                   <th className="px-3 py-2">Day</th>
