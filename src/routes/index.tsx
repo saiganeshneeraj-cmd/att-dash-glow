@@ -9,7 +9,7 @@ import { loadCached, saveCached } from "@/lib/local-store";
 import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import {
-  createAttendanceRoom, createMassBunkPoll, getRoomSnapshot, joinAttendanceRoom,
+  createAttendanceRoom, createMassBunkPoll, deleteAttendanceRoom, getRoomSnapshot, joinAttendanceRoom,
   listMyRooms, sendSosBroadcast, syncRoomMemberStats, voteMassBunkPoll,
 } from "@/lib/rooms.functions";
 import {
