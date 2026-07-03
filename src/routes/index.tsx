@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, signOut } from "@/hooks/use-auth";
@@ -7,6 +8,10 @@ import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText }
 import { loadCached, saveCached } from "@/lib/local-store";
 import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
 import { BulkActionBar } from "@/components/BulkActionBar";
+import {
+  createAttendanceRoom, createMassBunkPoll, getRoomSnapshot, joinAttendanceRoom,
+  listMyRooms, sendSosBroadcast, syncRoomMemberStats, voteMassBunkPoll,
+} from "@/lib/rooms.functions";
 import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
   scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
@@ -20,7 +25,7 @@ export const Route = createFileRoute("/")({
 /* ============================================================
    Data model
    ============================================================ */
-type Mode = "quick" | "detailed" | "history";
+type Mode = "quick" | "detailed" | "history" | "rooms";
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat";
 const DAYS: DayKey[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DOW_TO_DAY: Record<number, DayKey | undefined> = { 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
@@ -37,7 +42,18 @@ interface DetailedData {
   holidays: string[];
   presetId?: string;
 }
-interface AppState { mode: Mode; quick: QuickData; detailed: DetailedData; }
+interface SocialData { displayName: string; activeRoomId?: string; }
+interface AppState { mode: Mode; quick: QuickData; detailed: DetailedData; social: SocialData; }
+
+type SafetyBadge = "Safe" | "On the Edge" | "In Danger";
+type RoomRow = { id: string; name: string; invite_code: string; owner_id: string; created_at: string };
+type RoomMemberRow = {
+  id: string; room_id: string; user_id: string; display_name: string;
+  attendance_pct: number; status_badge: string; active_streak: number; bunk_coins: number; last_seen_at: string;
+};
+type PollRow = { id: string; room_id: string; creator_id: string; subject: string; class_slot: string; class_date: string; is_closed: boolean; created_at: string };
+type VoteRow = { id: string; poll_id: string; user_id: string; intent: string; created_at: string };
+type SosRow = { id: string; room_id: string; sender_id: string; sender_name: string; subject: string; class_slot: string; message: string; expires_at: string; created_at: string };
 
 const LS_KEY = "attendedge_v3";
 const LS_CUSTOM_PRESETS = "attendedge_custom_presets_v1";
@@ -61,11 +77,21 @@ const defaultDetailed = (): DetailedData => ({
   holidays: [],
 });
 
+const defaultSocial = (): SocialData => ({ displayName: "" });
+
 const defaultState = (): AppState => ({
   mode: "detailed",
   quick: { total: 0, attended: 0 },
   detailed: defaultDetailed(),
+  social: defaultSocial(),
 });
+
+function normalizeSocial(raw: any): SocialData {
+  return {
+    displayName: typeof raw?.displayName === "string" ? raw.displayName : "",
+    activeRoomId: typeof raw?.activeRoomId === "string" ? raw.activeRoomId : undefined,
+  };
+}
 
 function normalizeDetailed(raw: any): DetailedData {
   const d = raw || {};
@@ -95,6 +121,7 @@ function loadLocal(): AppState | null {
       mode: s.mode ?? "detailed",
       quick: s.quick ?? { total: 0, attended: 0 },
       detailed: normalizeDetailed(s.detailed),
+      social: normalizeSocial(s.social),
     };
   } catch { return null; }
 }
@@ -123,6 +150,136 @@ export function applyPreset(state: AppState, preset: PresetTimetable): AppState 
     mode: "detailed",
     detailed: { ...state.detailed, periods: [...preset.periods], timetable: tt, presetId: preset.id },
   };
+}
+
+function computeDetailedTotals(detailed: DetailedData, untilISO = todayISO()) {
+  const holidays = new Set(detailed.holidays);
+  const start = new Date(detailed.startDate + "T00:00:00");
+  const end = new Date(untilISO + "T00:00:00");
+  if (isNaN(start.getTime()) || end < start) return { total: 0, attended: 0, missed: 0, cancelled: 0 };
+  let total = 0, attended = 0, missed = 0, cancelled = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    if (dayKey && !holidays.has(iso)) {
+      detailed.timetable[dayKey].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
+        if (st === "cancelled") { cancelled += 1; return; }
+        total += 1;
+        if (st === "attended") attended += 1;
+        else missed += 1;
+      });
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return { total, attended, missed, cancelled };
+}
+
+function pctFor(attended: number, total: number) {
+  return total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+}
+
+function statusBadgeFor(pct: number): SafetyBadge {
+  return pct >= 80 ? "Safe" : pct >= 75 ? "On the Edge" : "In Danger";
+}
+
+function bunkCoinsFor(attended: number, total: number) {
+  return total === 0 ? 0 : Math.max(0, Math.floor((4 * attended - 3 * total) / 3));
+}
+
+function computeStreak(detailed: DetailedData) {
+  const start = new Date(detailed.startDate + "T00:00:00");
+  const cur = new Date(todayISO() + "T00:00:00");
+  if (isNaN(start.getTime()) || cur < start) return 0;
+  const holidays = new Set(detailed.holidays);
+  let streak = 0;
+  while (cur >= start) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    if (dayKey && !holidays.has(iso)) {
+      const classes = detailed.timetable[dayKey]
+        .map((subj, idx) => ({ subj: subj.trim(), idx }))
+        .filter((c) => c.subj);
+      if (classes.length > 0) {
+        const hasMiss = classes.some((c) => detailed.states[`${iso}__${c.idx}`] === "missed");
+        const activeCount = classes.filter((c) => detailed.states[`${iso}__${c.idx}`] !== "cancelled").length;
+        if (hasMiss) break;
+        if (activeCount > 0) streak += 1;
+      }
+    }
+    cur.setDate(cur.getDate() - 1);
+  }
+  return streak;
+}
+
+function streakBadge(streak: number) {
+  if (streak >= 30) return { label: "Legendary Regular", icon: "🏆", next: 60 };
+  if (streak >= 14) return { label: "Roll Call Warrior", icon: "🛡️", next: 30 };
+  if (streak >= 7) return { label: "Week Saver", icon: "🔥", next: 14 };
+  if (streak >= 3) return { label: "Momentum Rookie", icon: "⚡", next: 7 };
+  return { label: "Starter", icon: "🌱", next: 3 };
+}
+
+function buildRoadmap(detailed: DetailedData, attended: number, total: number) {
+  if (total === 0 || pctFor(attended, total) >= 75) return [] as { iso: string; label: string; pct: number }[];
+  const milestones = [70, 72, 75];
+  const hit = new Set<number>();
+  const out: { iso: string; label: string; pct: number }[] = [];
+  let a = attended, t = total;
+  const cur = new Date(todayISO() + "T00:00:00");
+  cur.setDate(cur.getDate() + 1);
+  for (let guard = 0; guard < 90 && out.length < 5; guard++) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    const classes = dayKey && !detailed.holidays.includes(iso)
+      ? detailed.timetable[dayKey].filter((s) => s.trim()).length
+      : 0;
+    if (classes > 0) {
+      a += classes; t += classes;
+      const p = pctFor(a, t);
+      const crossed = milestones.find((m) => p >= m && !hit.has(m));
+      if (crossed) {
+        hit.add(crossed);
+        out.push({ iso, label: `Attend through ${formatShortDate(cur)} to reach ${p}%`, pct: p });
+      } else if (out.length < 2) {
+        out.push({ iso, label: `Keep attending through ${formatShortDate(cur)} · projected ${p}%`, pct: p });
+      }
+      if (p >= 75 && hit.has(75)) break;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function computeWrapped(detailed: DetailedData) {
+  const start = new Date(detailed.startDate + "T00:00:00");
+  const end = new Date(todayISO() + "T00:00:00");
+  const skippedByDay: Record<string, number> = {};
+  let total = 0, attended = 0, closest = 100, closestLabel = "No close calls yet";
+  if (isNaN(start.getTime()) || end < start) return { mostSkipped: "—", closestCall: closestLabel, hours: 0 };
+  const cur = new Date(start);
+  while (cur <= end) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    if (dayKey && !detailed.holidays.includes(iso)) {
+      detailed.timetable[dayKey].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
+        if (st === "cancelled") return;
+        total += 1;
+        if (st === "attended") attended += 1;
+        if (st === "missed") skippedByDay[WEEKDAYS[cur.getDay()]] = (skippedByDay[WEEKDAYS[cur.getDay()]] ?? 0) + 1;
+        const p = pctFor(attended, total);
+        const diff = Math.abs(p - 75);
+        if (total >= 4 && diff < closest) { closest = diff; closestLabel = `${p}% on ${formatShortDate(cur)}`; }
+      });
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  const mostSkipped = Object.entries(skippedByDay).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "No skip pattern";
+  return { mostSkipped, closestCall: closestLabel, hours: Math.round(attended * 0.75 * 10) / 10 };
 }
 
 /* ============================================================
@@ -172,6 +329,7 @@ function AttendancePage() {
           mode: cached.mode ?? "detailed",
           quick: cached.quick ?? { total: 0, attended: 0 },
           detailed: normalizeDetailed(cached.detailed),
+          social: normalizeSocial(cached.social),
         });
         setCustomPresets(loadCustomPresets());
         skipNextSaveRef.current = true;
@@ -196,6 +354,7 @@ function AttendancePage() {
             mode: s.mode ?? "detailed",
             quick: s.quick ?? { total: 0, attended: 0 },
             detailed: normalizeDetailed(s.detailed),
+            social: normalizeSocial(s.social),
           };
           if (JSON.stringify(remote) !== JSON.stringify(cached)) {
             setState(remote);
@@ -299,6 +458,7 @@ function AttendancePage() {
             mode: s.mode ?? "detailed",
             quick: s.quick ?? { total: 0, attended: 0 },
             detailed: normalizeDetailed(s.detailed),
+            social: normalizeSocial(s.social),
           });
         }
         if (Array.isArray(parsed.customPresets)) {
@@ -617,18 +777,19 @@ function Header({
     return () => document.removeEventListener("mousedown", h);
   }, [menuOpen]);
   const initial = user?.email?.[0]?.toUpperCase() ?? "?";
+  const reportState = state.mode === "rooms" ? { ...state, mode: "detailed" as const } : state;
 
   const doPdf = async () => {
     setBusy("pdf"); setMenuOpen(false);
-    try { await downloadPdfReport(state); } finally { setBusy(null); }
+    try { await downloadPdfReport(reportState); } finally { setBusy(null); }
   };
   const doImg = async () => {
     setBusy("img"); setMenuOpen(false);
-    try { await downloadImageReport(state); } finally { setBusy(null); }
+    try { await downloadImageReport(reportState); } finally { setBusy(null); }
   };
   const doShare = async () => {
     setBusy("share"); setMenuOpen(false);
-    const text = summaryToText(computeSummary(state));
+    const text = summaryToText(computeSummary(reportState));
     try {
       if (navigator.share) {
         try { await navigator.share({ title: "My attendance", text }); }
