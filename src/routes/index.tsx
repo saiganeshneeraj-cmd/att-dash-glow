@@ -777,7 +777,8 @@ function Header({
     return () => document.removeEventListener("mousedown", h);
   }, [menuOpen]);
   const initial = user?.email?.[0]?.toUpperCase() ?? "?";
-  const reportState = state.mode === "rooms" ? { ...state, mode: "detailed" as const } : state;
+  const reportMode: "quick" | "detailed" | "history" = state.mode === "rooms" ? "detailed" : state.mode;
+  const reportState = { mode: reportMode, quick: state.quick, detailed: state.detailed };
 
   const doPdf = async () => {
     setBusy("pdf"); setMenuOpen(false);
