@@ -683,7 +683,7 @@ function Header({
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.currentTarget.value = ""; }} />
 
-        {notifyCapable && (
+        {hydrated && notifyCapable && (
           <button
             onClick={() => onToggleNotify(!notifyEnabled)}
             title={notifyEnabled ? "Notifications ON — click to turn off" : "Turn on daily notifications"}
