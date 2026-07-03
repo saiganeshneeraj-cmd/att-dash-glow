@@ -683,20 +683,29 @@ function Header({
         <input ref={fileRef} type="file" accept="application/json" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onImport(f); e.currentTarget.value = ""; }} />
 
+        {notifyCapable && (
+          <button
+            onClick={() => onToggleNotify(!notifyEnabled)}
+            title={notifyEnabled ? "Notifications ON — click to turn off" : "Turn on daily notifications"}
+            className={`press-card inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${
+              notifyEnabled
+                ? "border-primary/60 bg-primary/10 text-primary shadow-[0_0_18px_-6px_var(--neon-cyan)]"
+                : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40"
+            }`}
+          >
+            <span>{notifyEnabled ? "🔔" : "🔕"}</span>
+            <span className="hidden sm:inline">Alerts {notifyEnabled ? "On" : "Off"}</span>
+            <span
+              aria-hidden
+              className={`relative inline-block h-4 w-7 rounded-full transition-colors ${notifyEnabled ? "bg-primary" : "bg-muted"}`}
+            >
+              <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-background transition-all ${notifyEnabled ? "left-3.5" : "left-0.5"}`} />
+            </span>
+          </button>
+        )}
+
         {user ? (
-          <div className="group relative">
-            <button className="flex h-10 items-center gap-2 rounded-full border border-border bg-card px-2 pr-3 transition hover:border-primary">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-primary-foreground"
-                style={{ background: "var(--gradient-primary)" }}>{initial}</span>
-              <span className="hidden max-w-[140px] truncate text-xs text-foreground sm:inline">{user.email}</span>
-            </button>
-            <div className="absolute right-0 top-full z-20 mt-2 hidden w-44 rounded-xl border border-border bg-popover p-1 shadow-xl group-hover:block">
-              <div className="truncate px-3 py-2 text-[11px] text-muted-foreground">{user.email}</div>
-              <button onClick={() => signOut()} className="w-full rounded-lg px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
-                Sign out
-              </button>
-            </div>
-          </div>
+          <UserMenu user={user} initial={initial} />
         ) : (
           <Link to="/auth"
             className="rounded-full border border-border bg-card px-4 py-2 text-xs font-semibold text-foreground transition hover:border-primary hover:shadow-[0_0_18px_-6px_var(--neon-cyan)]">
@@ -705,6 +714,40 @@ function Header({
         )}
       </div>
     </header>
+  );
+}
+
+function UserMenu({ user, initial }: { user: { email?: string | null } | null; initial: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    if (open) document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-10 items-center gap-2 rounded-full border border-border bg-card px-2 pr-3 transition hover:border-primary"
+      >
+        <span className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-primary-foreground"
+          style={{ background: "var(--gradient-primary)" }}>{initial}</span>
+        <span className="hidden max-w-[140px] truncate text-xs text-foreground sm:inline">{user?.email}</span>
+        <span className="text-[10px] text-muted-foreground">▾</span>
+      </button>
+      {open && (
+        <div className="animate-toast-in absolute right-0 top-full z-30 mt-2 w-52 rounded-xl border border-border bg-popover p-1.5 shadow-xl backdrop-blur-xl">
+          <div className="truncate px-3 py-2 text-[11px] text-muted-foreground">{user?.email}</div>
+          <button
+            onClick={() => { setOpen(false); signOut(); }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-destructive hover:bg-destructive/10"
+          >
+            <span>⎋</span> Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
