@@ -749,7 +749,7 @@ function AttendancePage() {
       <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
       <BadgePopup badge={badgePopup} onDismiss={() => setBadgePopup(null)} />
       {showOnboard && (
-        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} />
+        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} info={computeTodayInfo()} />
       )}
     </main>
   );
@@ -758,10 +758,15 @@ function AttendancePage() {
 /* ============================================================
    Notification onboarding modal
    ============================================================ */
-function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip: () => void }) {
+function NotifyOnboardModal({ onEnable, onSkip, info }: {
+  onEnable: () => void;
+  onSkip: () => void;
+  info: { classesToday: number; loggedToday: boolean; pct: number; projMissAll: number; drop: number };
+}) {
+  const hasClasses = info.classesToday > 0;
   return (
     <div className="fixed inset-x-0 top-0 z-[60] flex items-start justify-center bg-black/55 px-3 pb-10 pt-3 backdrop-blur-sm animate-fade-in sm:pt-5">
-      <div className="glass-neon relative w-full max-w-lg overflow-hidden rounded-3xl p-4 sm:p-5 animate-toast-in max-h-[72vh] overflow-y-auto"
+      <div className="glass-neon relative w-full max-w-lg overflow-hidden rounded-3xl p-4 sm:p-5 animate-toast-in max-h-[80vh] overflow-y-auto"
         style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
           style={{ background: "var(--neon-magenta)" }} />
@@ -776,7 +781,29 @@ function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip
             </h2>
           </div>
 
-          {/* Actions first so they are visible without scrolling */}
+          {/* Live preview of the exact alert */}
+          <div className="mt-4 rounded-2xl border border-primary/40 bg-background/60 p-3 shadow-inner">
+            <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              <span>🔔</span><span>Live preview · updates with your attendance</span>
+            </div>
+            {hasClasses ? (
+              <div className="space-y-1">
+                <div className="text-sm font-bold text-foreground">📊 Today's Attendance Impact</div>
+                <div className="text-xs text-muted-foreground">
+                  You have <b className="text-foreground">{info.classesToday}</b> class{info.classesToday === 1 ? "" : "es"} today. Current attendance: <b className="text-foreground">{info.pct}%</b>.
+                </div>
+                <div className={`text-xs font-semibold ${info.projMissAll < 75 ? "text-destructive" : "text-warning"}`}>
+                  If you skip all today → <b>{info.projMissAll}%</b>
+                  {info.drop > 0 && <span className="opacity-80"> (−{info.drop}%)</span>}
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                No scheduled classes today. Current attendance: <b className="text-foreground">{info.pct}%</b>.
+              </div>
+            )}
+          </div>
+
           <div className="mt-4 flex flex-col gap-2">
             <button onClick={onEnable}
               className="w-full rounded-xl px-4 py-3 text-sm font-bold text-primary-foreground shadow-lg transition hover:brightness-110"
@@ -789,11 +816,8 @@ function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip
             </button>
           </div>
 
-          <p className="mt-4 text-sm text-muted-foreground">
-            Get daily updates so your attendance never quietly slips.
-          </p>
-          <ul className="mt-3 space-y-1.5 text-xs text-muted-foreground">
-            <li className="flex items-start gap-2"><span>☀️</span><span><b className="text-foreground">8:00 AM</b> — today's classes + live attendance %</span></li>
+          <ul className="mt-4 space-y-1.5 text-xs text-muted-foreground">
+            <li className="flex items-start gap-2"><span>☀️</span><span><b className="text-foreground">8:00 AM</b> — today's classes + impact preview above</span></li>
             <li className="flex items-start gap-2"><span>📝</span><span><b className="text-foreground">6:00 PM</b> — reminder to log attended / missed</span></li>
             <li className="flex items-start gap-2"><span>⚠️</span><span><b className="text-foreground">Proximity alerts</b> when you're about to drop below 75%</span></li>
           </ul>
