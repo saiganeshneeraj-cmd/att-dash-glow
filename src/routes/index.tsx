@@ -1251,6 +1251,18 @@ function RoomsHub({ user, social, setSocial, stats, detailed, roadmap, wrapped, 
     finally { setBusy(null); }
   };
 
+  const handleDeleteRoom = async (roomId: string, roomName: string) => {
+    if (!window.confirm(`Delete room "${roomName}"? This removes all members, polls, and SOS history. This cannot be undone.`)) return;
+    setBusy("delete"); setError(null);
+    try {
+      await deleteRoom({ data: { roomId } });
+      setRooms((r) => r.filter((x) => x.id !== roomId));
+      setSocial((s) => (s.activeRoomId === roomId ? { ...s, activeRoomId: undefined } : s));
+      setSnapshot(null);
+    } catch (e) { setError(e instanceof Error ? e.message : "Delete failed"); }
+    finally { setBusy(null); }
+  };
+
   if (!user) {
     return (
       <div className="glass-neon p-6 text-center">
