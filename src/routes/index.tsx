@@ -4,6 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, signOut } from "@/hooks/use-auth";
 import { PRESETS, type PresetTimetable } from "@/lib/presets";
 import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText } from "@/lib/report";
+import { loadCached, saveCached } from "@/lib/local-store";
+import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
+import { BulkActionBar } from "@/components/BulkActionBar";
 import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
   scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
@@ -12,6 +15,7 @@ import {
 export const Route = createFileRoute("/")({
   component: AttendancePage,
 });
+
 
 /* ============================================================
    Data model
@@ -156,10 +160,29 @@ function AttendancePage() {
     setToast(null);
   }, []);
 
+  // Local-first hydration: IndexedDB → paint → localStorage → remote reconcile.
   useEffect(() => {
     if (authLoading) return;
     let cancelled = false;
     (async () => {
+      // 1. Paint from IndexedDB immediately (fastest cache).
+      const cached = await loadCached<AppState>(user?.id);
+      if (!cancelled && cached) {
+        setState({
+          mode: cached.mode ?? "detailed",
+          quick: cached.quick ?? { total: 0, attended: 0 },
+          detailed: normalizeDetailed(cached.detailed),
+        });
+        setCustomPresets(loadCustomPresets());
+        skipNextSaveRef.current = true;
+        setHydrated(true);
+      }
+      // 2. Fall back to localStorage on a totally cold start.
+      if (!cached) {
+        const local = loadLocal();
+        if (!cancelled && local) setState(local);
+      }
+      // 3. If signed in, reconcile against Supabase in the background.
       if (user) {
         const { data, error } = await supabase
           .from("user_data" as any)
@@ -169,31 +192,34 @@ function AttendancePage() {
         if (cancelled) return;
         if (!error && data && (data as any).data && Object.keys((data as any).data).length) {
           const s = (data as any).data as AppState;
-          setState({
+          const remote: AppState = {
             mode: s.mode ?? "detailed",
             quick: s.quick ?? { total: 0, attended: 0 },
             detailed: normalizeDetailed(s.detailed),
-          });
-        } else {
-          const local = loadLocal();
-          if (local) setState(local);
+          };
+          if (JSON.stringify(remote) !== JSON.stringify(cached)) {
+            setState(remote);
+            saveCached(user.id, remote);
+          }
         }
-      } else {
-        const local = loadLocal();
-        if (local) setState(local);
       }
-      setCustomPresets(loadCustomPresets());
-      skipNextSaveRef.current = true;
-      setHydrated(true);
+      if (!cancelled && !cached) {
+        setCustomPresets(loadCustomPresets());
+        skipNextSaveRef.current = true;
+        setHydrated(true);
+      }
     })();
     return () => { cancelled = true; };
   }, [user, authLoading]);
 
+  // Mirror every state change into localStorage + IndexedDB (fire-and-forget).
   useEffect(() => {
     if (!hydrated) return;
     try { window.localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
-  }, [state, hydrated]);
+    saveCached(user?.id, state);
+  }, [state, hydrated, user?.id]);
 
+  // Debounced background sync to Supabase — never blocks the UI.
   useEffect(() => {
     if (!hydrated || !user) return;
     if (skipNextSaveRef.current) { skipNextSaveRef.current = false; return; }
@@ -207,6 +233,7 @@ function AttendancePage() {
     }, 700);
     return () => clearTimeout(t);
   }, [state, hydrated, user]);
+
 
   const setMode = useCallback((m: Mode) => setState((s) => ({ ...s, mode: m })), []);
   const setQuick = useCallback(
@@ -479,7 +506,9 @@ function AttendancePage() {
         </section>
 
         <section className="mt-6 animate-fade-in">
-          {mode === "quick" ? (
+          {!hydrated ? (
+            <ContentSkeleton />
+          ) : mode === "quick" ? (
             <QuickForm quick={quick} setQuick={setQuick} />
           ) : mode === "history" ? (
             <HistoryView detailed={detailed} />
@@ -495,6 +524,7 @@ function AttendancePage() {
             />
           )}
         </section>
+
 
         <footer className="mt-10 pb-4 text-center text-xs text-muted-foreground">
           {user ? "Synced to your account" : "Saved locally"} · Threshold: 75%
@@ -893,7 +923,7 @@ function DetailedTracker({
   onDeleteCustomPreset: (id: string) => void;
   captureUndo: (label: string) => void;
 }) {
-  const [tab, setTab] = useState<"setup" | "log">("setup");
+  const [tab, setTab] = useState<"setup" | "log" | "bulk">("setup");
 
   return (
     <div className="glass-neon overflow-hidden p-4 sm:p-6">
@@ -903,15 +933,17 @@ function DetailedTracker({
           <p className="text-xs text-muted-foreground sm:text-sm">
             {tab === "setup"
               ? "Step 1: load a preset or fill your grid, then head to Daily Log."
-              : "Step 2: tap any class to mark Attended / Missed."}
+              : tab === "log"
+              ? "Step 2: tap any class to mark Attended / Missed."
+              : "Bulk Edit: drag across cells or click row/column headers, then apply."}
           </p>
         </div>
         <div className="inline-flex shrink-0 rounded-full border border-border bg-background/40 p-1">
-          {(["setup", "log"] as const).map((t) => (
+          {(["setup", "log", "bulk"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
-              className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${tab === t ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 sm:px-4 ${tab === t ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               style={tab === t ? { background: "var(--gradient-primary)" } : undefined}>
-              {t === "setup" ? "1 · Setup" : "2 · Daily Log"}
+              {t === "setup" ? "1 · Setup" : t === "log" ? "2 · Daily Log" : "⚡ Bulk Edit"}
             </button>
           ))}
         </div>
@@ -927,12 +959,15 @@ function DetailedTracker({
           onDeleteCustomPreset={onDeleteCustomPreset}
           onGoToLog={() => setTab("log")}
         />
-      ) : (
+      ) : tab === "log" ? (
         <LogPanel detailed={detailed} setDetailed={setDetailed} captureUndo={captureUndo} />
+      ) : (
+        <BulkEditPanel detailed={detailed} setDetailed={setDetailed} captureUndo={captureUndo} />
       )}
     </div>
   );
 }
+
 
 /* ---------- Preset picker ---------- */
 function PresetPicker({
@@ -1235,9 +1270,10 @@ function LogPanel({
     <div className="mt-5 animate-fade-in">
       {StartDateToolbar}
 
-      {/* Day carousel — jump directly to any day */}
-      <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-2"
+      {/* Day carousel — sticky so it stays visible while scrolling long logs */}
+      <div className="sticky top-0 z-20 -mx-1 mb-3 flex gap-2 overflow-x-auto rounded-2xl border border-border/40 bg-background/70 px-2 py-2 backdrop-blur-md transition-colors duration-200"
         style={{ scrollSnapType: "x mandatory" }}>
+
         {dates.map(({ iso, day, label }) => {
           const isToday = iso === todayIsoStr;
           const isHoliday = holidaySet.has(iso);
@@ -1731,7 +1767,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-background/85 backdrop-blur text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Subject</th>
                   <th className="px-3 py-2">Trend</th>
@@ -1772,7 +1808,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full text-left text-xs">
-              <thead className="bg-background/40 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-background/85 backdrop-blur text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Date</th>
                   <th className="px-3 py-2">Day</th>
@@ -1859,4 +1895,85 @@ function TrendSparkline({ data, color, width = 120, height = 32 }: { data: numbe
   );
 }
 
+/* ============================================================
+   Skeleton shown before IndexedDB hydration completes
+   ============================================================ */
+function ContentSkeleton() {
+  return (
+    <div className="glass p-4 sm:p-6">
+      <div className="mb-4 flex gap-3">
+        <div className="h-6 w-32 animate-pulse rounded-full bg-primary/10" />
+        <div className="ml-auto h-6 w-24 animate-pulse rounded-full bg-primary/10" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-24 animate-pulse rounded-xl bg-primary/5" style={{ animationDelay: `${i * 60}ms` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Bulk Edit Panel — grid select + floating action bar + undo
+   ============================================================ */
+function BulkEditPanel({
+  detailed, setDetailed, captureUndo,
+}: {
+  detailed: DetailedData;
+  setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
+  captureUndo: (label: string) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const applyBulk = useCallback((status: BulkStatus | "holiday") => {
+    if (selected.size === 0) return;
+    captureUndo(`Bulk: ${status} · ${selected.size} cell${selected.size === 1 ? "" : "s"}`);
+    setDetailed((d) => {
+      if (status === "holiday") {
+        // Add every unique date in selection to holidays
+        const days = new Set<string>();
+        selected.forEach((k) => days.add(k.split("__")[0]));
+        const nextHolidays = Array.from(new Set([...d.holidays, ...days]));
+        return { ...d, holidays: nextHolidays };
+      }
+      const nextStates: ClassState = { ...d.states };
+      selected.forEach((k) => { nextStates[k] = status; });
+      return { ...d, states: nextStates };
+    });
+    setSelected(new Set());
+  }, [selected, setDetailed, captureUndo]);
+
+  return (
+    <div className="mt-5 animate-fade-in">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          Drag across cells, or click a row/column header to select. Hold <kbd className="rounded border border-border bg-background/60 px-1">Shift</kbd> while dragging to add to your current selection.
+        </span>
+        {selected.size > 0 && (
+          <button
+            onClick={() => setSelected(new Set())}
+            className="rounded-full border border-border bg-background/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground transition-colors duration-200 hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <BulkGrid
+        startDate={detailed.startDate}
+        timetable={detailed.timetable}
+        periods={detailed.periods}
+        states={detailed.states}
+        holidays={detailed.holidays}
+        selected={selected}
+        onSelectedChange={setSelected}
+      />
+      <BulkActionBar
+        count={selected.size}
+        onApply={applyBulk}
+        onClear={() => setSelected(new Set())}
+      />
+    </div>
+  );
+}
 
