@@ -4,6 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth, signOut } from "@/hooks/use-auth";
 import { PRESETS, type PresetTimetable } from "@/lib/presets";
 import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText } from "@/lib/report";
+import { loadCached, saveCached } from "@/lib/local-store";
+import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
+import { BulkActionBar } from "@/components/BulkActionBar";
 import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
   scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
@@ -12,6 +15,7 @@ import {
 export const Route = createFileRoute("/")({
   component: AttendancePage,
 });
+
 
 /* ============================================================
    Data model
