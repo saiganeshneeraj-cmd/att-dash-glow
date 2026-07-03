@@ -160,10 +160,29 @@ function AttendancePage() {
     setToast(null);
   }, []);
 
+  // Local-first hydration: IndexedDB → paint → localStorage → remote reconcile.
   useEffect(() => {
     if (authLoading) return;
     let cancelled = false;
     (async () => {
+      // 1. Paint from IndexedDB immediately (fastest cache).
+      const cached = await loadCached<AppState>(user?.id);
+      if (!cancelled && cached) {
+        setState({
+          mode: cached.mode ?? "detailed",
+          quick: cached.quick ?? { total: 0, attended: 0 },
+          detailed: normalizeDetailed(cached.detailed),
+        });
+        setCustomPresets(loadCustomPresets());
+        skipNextSaveRef.current = true;
+        setHydrated(true);
+      }
+      // 2. Fall back to localStorage on a totally cold start.
+      if (!cached) {
+        const local = loadLocal();
+        if (!cancelled && local) setState(local);
+      }
+      // 3. If signed in, reconcile against Supabase in the background.
       if (user) {
         const { data, error } = await supabase
           .from("user_data" as any)
@@ -173,31 +192,34 @@ function AttendancePage() {
         if (cancelled) return;
         if (!error && data && (data as any).data && Object.keys((data as any).data).length) {
           const s = (data as any).data as AppState;
-          setState({
+          const remote: AppState = {
             mode: s.mode ?? "detailed",
             quick: s.quick ?? { total: 0, attended: 0 },
             detailed: normalizeDetailed(s.detailed),
-          });
-        } else {
-          const local = loadLocal();
-          if (local) setState(local);
+          };
+          if (JSON.stringify(remote) !== JSON.stringify(cached)) {
+            setState(remote);
+            saveCached(user.id, remote);
+          }
         }
-      } else {
-        const local = loadLocal();
-        if (local) setState(local);
       }
-      setCustomPresets(loadCustomPresets());
-      skipNextSaveRef.current = true;
-      setHydrated(true);
+      if (!cancelled && !cached) {
+        setCustomPresets(loadCustomPresets());
+        skipNextSaveRef.current = true;
+        setHydrated(true);
+      }
     })();
     return () => { cancelled = true; };
   }, [user, authLoading]);
 
+  // Mirror every state change into localStorage + IndexedDB (fire-and-forget).
   useEffect(() => {
     if (!hydrated) return;
     try { window.localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
-  }, [state, hydrated]);
+    saveCached(user?.id, state);
+  }, [state, hydrated, user?.id]);
 
+  // Debounced background sync to Supabase — never blocks the UI.
   useEffect(() => {
     if (!hydrated || !user) return;
     if (skipNextSaveRef.current) { skipNextSaveRef.current = false; return; }
@@ -211,6 +233,7 @@ function AttendancePage() {
     }, 700);
     return () => clearTimeout(t);
   }, [state, hydrated, user]);
+
 
   const setMode = useCallback((m: Mode) => setState((s) => ({ ...s, mode: m })), []);
   const setQuick = useCallback(
