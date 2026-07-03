@@ -1895,4 +1895,85 @@ function TrendSparkline({ data, color, width = 120, height = 32 }: { data: numbe
   );
 }
 
+/* ============================================================
+   Skeleton shown before IndexedDB hydration completes
+   ============================================================ */
+function ContentSkeleton() {
+  return (
+    <div className="glass p-4 sm:p-6">
+      <div className="mb-4 flex gap-3">
+        <div className="h-6 w-32 animate-pulse rounded-full bg-primary/10" />
+        <div className="ml-auto h-6 w-24 animate-pulse rounded-full bg-primary/10" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-24 animate-pulse rounded-xl bg-primary/5" style={{ animationDelay: `${i * 60}ms` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Bulk Edit Panel — grid select + floating action bar + undo
+   ============================================================ */
+function BulkEditPanel({
+  detailed, setDetailed, captureUndo,
+}: {
+  detailed: DetailedData;
+  setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
+  captureUndo: (label: string) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const applyBulk = useCallback((status: BulkStatus | "holiday") => {
+    if (selected.size === 0) return;
+    captureUndo(`Bulk: ${status} · ${selected.size} cell${selected.size === 1 ? "" : "s"}`);
+    setDetailed((d) => {
+      if (status === "holiday") {
+        // Add every unique date in selection to holidays
+        const days = new Set<string>();
+        selected.forEach((k) => days.add(k.split("__")[0]));
+        const nextHolidays = Array.from(new Set([...d.holidays, ...days]));
+        return { ...d, holidays: nextHolidays };
+      }
+      const nextStates: ClassState = { ...d.states };
+      selected.forEach((k) => { nextStates[k] = status; });
+      return { ...d, states: nextStates };
+    });
+    setSelected(new Set());
+  }, [selected, setDetailed, captureUndo]);
+
+  return (
+    <div className="mt-5 animate-fade-in">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          Drag across cells, or click a row/column header to select. Hold <kbd className="rounded border border-border bg-background/60 px-1">Shift</kbd> while dragging to add to your current selection.
+        </span>
+        {selected.size > 0 && (
+          <button
+            onClick={() => setSelected(new Set())}
+            className="rounded-full border border-border bg-background/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground transition-colors duration-200 hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <BulkGrid
+        startDate={detailed.startDate}
+        timetable={detailed.timetable}
+        periods={detailed.periods}
+        states={detailed.states}
+        holidays={detailed.holidays}
+        selected={selected}
+        onSelectedChange={setSelected}
+      />
+      <BulkActionBar
+        count={selected.size}
+        onApply={applyBulk}
+        onClear={() => setSelected(new Set())}
+      />
+    </div>
+  );
+}
 
