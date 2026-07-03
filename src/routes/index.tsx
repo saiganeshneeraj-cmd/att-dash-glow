@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, signOut } from "@/hooks/use-auth";
@@ -7,6 +8,10 @@ import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText }
 import { loadCached, saveCached } from "@/lib/local-store";
 import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
 import { BulkActionBar } from "@/components/BulkActionBar";
+import {
+  createAttendanceRoom, createMassBunkPoll, getRoomSnapshot, joinAttendanceRoom,
+  listMyRooms, sendSosBroadcast, syncRoomMemberStats, voteMassBunkPoll,
+} from "@/lib/rooms.functions";
 import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
   scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
@@ -20,7 +25,7 @@ export const Route = createFileRoute("/")({
 /* ============================================================
    Data model
    ============================================================ */
-type Mode = "quick" | "detailed" | "history";
+type Mode = "quick" | "detailed" | "history" | "rooms";
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat";
 const DAYS: DayKey[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DOW_TO_DAY: Record<number, DayKey | undefined> = { 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
@@ -37,7 +42,18 @@ interface DetailedData {
   holidays: string[];
   presetId?: string;
 }
-interface AppState { mode: Mode; quick: QuickData; detailed: DetailedData; }
+interface SocialData { displayName: string; activeRoomId?: string; }
+interface AppState { mode: Mode; quick: QuickData; detailed: DetailedData; social: SocialData; }
+
+type SafetyBadge = "Safe" | "On the Edge" | "In Danger";
+type RoomRow = { id: string; name: string; invite_code: string; owner_id: string; created_at: string };
+type RoomMemberRow = {
+  id: string; room_id: string; user_id: string; display_name: string;
+  attendance_pct: number; status_badge: string; active_streak: number; bunk_coins: number; last_seen_at: string;
+};
+type PollRow = { id: string; room_id: string; creator_id: string; subject: string; class_slot: string; class_date: string; is_closed: boolean; created_at: string };
+type VoteRow = { id: string; poll_id: string; user_id: string; intent: string; created_at: string };
+type SosRow = { id: string; room_id: string; sender_id: string; sender_name: string; subject: string; class_slot: string; message: string; expires_at: string; created_at: string };
 
 const LS_KEY = "attendedge_v3";
 const LS_CUSTOM_PRESETS = "attendedge_custom_presets_v1";
@@ -61,11 +77,21 @@ const defaultDetailed = (): DetailedData => ({
   holidays: [],
 });
 
+const defaultSocial = (): SocialData => ({ displayName: "" });
+
 const defaultState = (): AppState => ({
   mode: "detailed",
   quick: { total: 0, attended: 0 },
   detailed: defaultDetailed(),
+  social: defaultSocial(),
 });
+
+function normalizeSocial(raw: any): SocialData {
+  return {
+    displayName: typeof raw?.displayName === "string" ? raw.displayName : "",
+    activeRoomId: typeof raw?.activeRoomId === "string" ? raw.activeRoomId : undefined,
+  };
+}
 
 function normalizeDetailed(raw: any): DetailedData {
   const d = raw || {};
@@ -95,6 +121,7 @@ function loadLocal(): AppState | null {
       mode: s.mode ?? "detailed",
       quick: s.quick ?? { total: 0, attended: 0 },
       detailed: normalizeDetailed(s.detailed),
+      social: normalizeSocial(s.social),
     };
   } catch { return null; }
 }
@@ -123,6 +150,136 @@ export function applyPreset(state: AppState, preset: PresetTimetable): AppState 
     mode: "detailed",
     detailed: { ...state.detailed, periods: [...preset.periods], timetable: tt, presetId: preset.id },
   };
+}
+
+function computeDetailedTotals(detailed: DetailedData, untilISO = todayISO()) {
+  const holidays = new Set(detailed.holidays);
+  const start = new Date(detailed.startDate + "T00:00:00");
+  const end = new Date(untilISO + "T00:00:00");
+  if (isNaN(start.getTime()) || end < start) return { total: 0, attended: 0, missed: 0, cancelled: 0 };
+  let total = 0, attended = 0, missed = 0, cancelled = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    if (dayKey && !holidays.has(iso)) {
+      detailed.timetable[dayKey].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
+        if (st === "cancelled") { cancelled += 1; return; }
+        total += 1;
+        if (st === "attended") attended += 1;
+        else missed += 1;
+      });
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return { total, attended, missed, cancelled };
+}
+
+function pctFor(attended: number, total: number) {
+  return total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+}
+
+function statusBadgeFor(pct: number): SafetyBadge {
+  return pct >= 80 ? "Safe" : pct >= 75 ? "On the Edge" : "In Danger";
+}
+
+function bunkCoinsFor(attended: number, total: number) {
+  return total === 0 ? 0 : Math.max(0, Math.floor((4 * attended - 3 * total) / 3));
+}
+
+function computeStreak(detailed: DetailedData) {
+  const start = new Date(detailed.startDate + "T00:00:00");
+  const cur = new Date(todayISO() + "T00:00:00");
+  if (isNaN(start.getTime()) || cur < start) return 0;
+  const holidays = new Set(detailed.holidays);
+  let streak = 0;
+  while (cur >= start) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    if (dayKey && !holidays.has(iso)) {
+      const classes = detailed.timetable[dayKey]
+        .map((subj, idx) => ({ subj: subj.trim(), idx }))
+        .filter((c) => c.subj);
+      if (classes.length > 0) {
+        const hasMiss = classes.some((c) => detailed.states[`${iso}__${c.idx}`] === "missed");
+        const activeCount = classes.filter((c) => detailed.states[`${iso}__${c.idx}`] !== "cancelled").length;
+        if (hasMiss) break;
+        if (activeCount > 0) streak += 1;
+      }
+    }
+    cur.setDate(cur.getDate() - 1);
+  }
+  return streak;
+}
+
+function streakBadge(streak: number) {
+  if (streak >= 30) return { label: "Legendary Regular", icon: "🏆", next: 60 };
+  if (streak >= 14) return { label: "Roll Call Warrior", icon: "🛡️", next: 30 };
+  if (streak >= 7) return { label: "Week Saver", icon: "🔥", next: 14 };
+  if (streak >= 3) return { label: "Momentum Rookie", icon: "⚡", next: 7 };
+  return { label: "Starter", icon: "🌱", next: 3 };
+}
+
+function buildRoadmap(detailed: DetailedData, attended: number, total: number) {
+  if (total === 0 || pctFor(attended, total) >= 75) return [] as { iso: string; label: string; pct: number }[];
+  const milestones = [70, 72, 75];
+  const hit = new Set<number>();
+  const out: { iso: string; label: string; pct: number }[] = [];
+  let a = attended, t = total;
+  const cur = new Date(todayISO() + "T00:00:00");
+  cur.setDate(cur.getDate() + 1);
+  for (let guard = 0; guard < 90 && out.length < 5; guard++) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    const classes = dayKey && !detailed.holidays.includes(iso)
+      ? detailed.timetable[dayKey].filter((s) => s.trim()).length
+      : 0;
+    if (classes > 0) {
+      a += classes; t += classes;
+      const p = pctFor(a, t);
+      const crossed = milestones.find((m) => p >= m && !hit.has(m));
+      if (crossed) {
+        hit.add(crossed);
+        out.push({ iso, label: `Attend through ${formatShortDate(cur)} to reach ${p}%`, pct: p });
+      } else if (out.length < 2) {
+        out.push({ iso, label: `Keep attending through ${formatShortDate(cur)} · projected ${p}%`, pct: p });
+      }
+      if (p >= 75 && hit.has(75)) break;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function computeWrapped(detailed: DetailedData) {
+  const start = new Date(detailed.startDate + "T00:00:00");
+  const end = new Date(todayISO() + "T00:00:00");
+  const skippedByDay: Record<string, number> = {};
+  let total = 0, attended = 0, closest = 100, closestLabel = "No close calls yet";
+  if (isNaN(start.getTime()) || end < start) return { mostSkipped: "—", closestCall: closestLabel, hours: 0 };
+  const cur = new Date(start);
+  while (cur <= end) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    if (dayKey && !detailed.holidays.includes(iso)) {
+      detailed.timetable[dayKey].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
+        if (st === "cancelled") return;
+        total += 1;
+        if (st === "attended") attended += 1;
+        if (st === "missed") skippedByDay[WEEKDAYS[cur.getDay()]] = (skippedByDay[WEEKDAYS[cur.getDay()]] ?? 0) + 1;
+        const p = pctFor(attended, total);
+        const diff = Math.abs(p - 75);
+        if (total >= 4 && diff < closest) { closest = diff; closestLabel = `${p}% on ${formatShortDate(cur)}`; }
+      });
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  const mostSkipped = Object.entries(skippedByDay).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "No skip pattern";
+  return { mostSkipped, closestCall: closestLabel, hours: Math.round(attended * 0.75 * 10) / 10 };
 }
 
 /* ============================================================
@@ -172,6 +329,7 @@ function AttendancePage() {
           mode: cached.mode ?? "detailed",
           quick: cached.quick ?? { total: 0, attended: 0 },
           detailed: normalizeDetailed(cached.detailed),
+          social: normalizeSocial(cached.social),
         });
         setCustomPresets(loadCustomPresets());
         skipNextSaveRef.current = true;
@@ -196,6 +354,7 @@ function AttendancePage() {
             mode: s.mode ?? "detailed",
             quick: s.quick ?? { total: 0, attended: 0 },
             detailed: normalizeDetailed(s.detailed),
+            social: normalizeSocial(s.social),
           };
           if (JSON.stringify(remote) !== JSON.stringify(cached)) {
             setState(remote);
@@ -242,6 +401,9 @@ function AttendancePage() {
   const setDetailed = useCallback(
     (updater: DetailedData | ((d: DetailedData) => DetailedData)) =>
       setState((s) => ({ ...s, detailed: typeof updater === "function" ? (updater as any)(s.detailed) : updater })), []);
+  const setSocial = useCallback(
+    (updater: SocialData | ((d: SocialData) => SocialData)) =>
+      setState((s) => ({ ...s, social: typeof updater === "function" ? (updater as any)(s.social) : updater })), []);
 
   const allPresets = useMemo(() => [...PRESETS, ...customPresets], [customPresets]);
   const applyPresetById = useCallback((id: string) => {
@@ -299,6 +461,7 @@ function AttendancePage() {
             mode: s.mode ?? "detailed",
             quick: s.quick ?? { total: 0, attended: 0 },
             detailed: normalizeDetailed(s.detailed),
+            social: normalizeSocial(s.social),
           });
         }
         if (Array.isArray(parsed.customPresets)) {
@@ -342,12 +505,36 @@ function AttendancePage() {
     return { total: t, attended: a };
   }, [mode, quick, detailed]);
 
-  const pct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+  const pct = pctFor(attended, total);
   const status = pct < 75 ? "danger" : pct < 80 ? "warn" : "good";
   const statusText = status === "danger" ? "In Danger" : status === "warn" ? "On the Edge" : "Good Position";
   const statusColor = status === "danger" ? "var(--color-danger)" : status === "warn" ? "var(--color-warning)" : "var(--color-success)";
   const target = total === 0 ? 0 : Math.max(0, Math.ceil(3 * total - 4 * attended));
-  const safe = total === 0 ? 0 : Math.max(0, Math.floor((4 * attended - 3 * total) / 3));
+  const safe = bunkCoinsFor(attended, total);
+  const activeStreak = useMemo(() => mode === "quick" ? 0 : computeStreak(detailed), [mode, detailed]);
+  const badge = streakBadge(activeStreak);
+  const socialStats = useMemo(() => ({
+    attendancePct: pct,
+    statusBadge: statusBadgeFor(pct),
+    activeStreak,
+    bunkCoins: safe,
+  }), [pct, activeStreak, safe]);
+  const roadmap = useMemo(() => buildRoadmap(detailed, attended, total), [detailed, attended, total]);
+  const wrapped = useMemo(() => computeWrapped(detailed), [detailed]);
+
+  const [badgePopup, setBadgePopup] = useState<{ icon: string; label: string; streak: number } | null>(null);
+  useEffect(() => {
+    if (!hydrated || activeStreak <= 0) return;
+    const milestones = [3, 7, 14, 30, 60, 100];
+    if (!milestones.includes(activeStreak)) return;
+    const key = `attendedge_streak_badge_${activeStreak}`;
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "1");
+    const b = streakBadge(activeStreak);
+    setBadgePopup({ icon: b.icon, label: b.label, streak: activeStreak });
+    const t = window.setTimeout(() => setBadgePopup(null), 5200);
+    return () => window.clearTimeout(t);
+  }, [hydrated, activeStreak]);
 
   // ---- Notifications engine ----
   const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>({ enabled: false, onboarded: false });
@@ -502,7 +689,7 @@ function AttendancePage() {
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <HeroRing pct={pct} statusText={statusText} statusColor={statusColor} total={total} attended={attended} />
-          <InsightsPanel status={status} target={target} safe={safe} total={total} />
+          <InsightsPanel status={status} target={target} safe={safe} total={total} streak={activeStreak} badge={badge} />
         </section>
 
         <section className="mt-6 animate-fade-in">
@@ -512,6 +699,17 @@ function AttendancePage() {
             <QuickForm quick={quick} setQuick={setQuick} />
           ) : mode === "history" ? (
             <HistoryView detailed={detailed} />
+          ) : mode === "rooms" ? (
+            <RoomsHub
+              user={user}
+              social={state.social}
+              setSocial={setSocial}
+              stats={socialStats}
+              detailed={detailed}
+              roadmap={roadmap}
+              wrapped={wrapped}
+              onToggleNotify={toggleNotifications}
+            />
           ) : (
             <DetailedTracker
               detailed={detailed} setDetailed={setDetailed}
@@ -532,6 +730,7 @@ function AttendancePage() {
       </div>
 
       <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
+      <BadgePopup badge={badgePopup} onDismiss={() => setBadgePopup(null)} />
       {showOnboard && (
         <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} />
       )}
@@ -544,8 +743,8 @@ function AttendancePage() {
    ============================================================ */
 function NotifyOnboardModal({ onEnable, onSkip }: { onEnable: () => void; onSkip: () => void }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center overflow-y-auto bg-black/70 px-3 py-4 backdrop-blur-sm animate-fade-in sm:items-center sm:px-4 sm:py-8">
-      <div className="glass-neon relative w-full max-w-md overflow-hidden rounded-3xl p-5 sm:p-7 animate-pop-in max-h-[92vh]"
+    <div className="fixed inset-x-0 bottom-0 z-[60] flex items-end justify-center bg-black/55 px-3 pb-3 pt-10 backdrop-blur-sm animate-fade-in sm:pb-5">
+      <div className="glass-neon relative w-full max-w-lg overflow-hidden rounded-3xl p-4 sm:p-5 animate-toast-in max-h-[72vh] overflow-y-auto"
         style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
           style={{ background: "var(--neon-magenta)" }} />
@@ -617,18 +816,20 @@ function Header({
     return () => document.removeEventListener("mousedown", h);
   }, [menuOpen]);
   const initial = user?.email?.[0]?.toUpperCase() ?? "?";
+  const reportMode: "quick" | "detailed" | "history" = state.mode === "rooms" ? "detailed" : state.mode;
+  const reportState = { mode: reportMode, quick: state.quick, detailed: state.detailed };
 
   const doPdf = async () => {
     setBusy("pdf"); setMenuOpen(false);
-    try { await downloadPdfReport(state); } finally { setBusy(null); }
+    try { await downloadPdfReport(reportState); } finally { setBusy(null); }
   };
   const doImg = async () => {
     setBusy("img"); setMenuOpen(false);
-    try { await downloadImageReport(state); } finally { setBusy(null); }
+    try { await downloadImageReport(reportState); } finally { setBusy(null); }
   };
   const doShare = async () => {
     setBusy("share"); setMenuOpen(false);
-    const text = summaryToText(computeSummary(state));
+    const text = summaryToText(computeSummary(reportState));
     try {
       if (navigator.share) {
         try { await navigator.share({ title: "My attendance", text }); }
@@ -666,13 +867,13 @@ function Header({
 
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <div className="inline-flex rounded-full border border-border bg-card p-1 backdrop-blur-md">
-          {(["detailed", "quick", "history"] as Mode[]).map((m) => (
+          {(["detailed", "quick", "history", "rooms"] as Mode[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`rounded-full px-3 py-2 text-xs font-medium transition-all sm:px-4 sm:text-sm ${
                 mode === m ? "text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground"
               }`}
               style={mode === m ? { background: "var(--gradient-primary)" } : undefined}>
-              {m === "quick" ? "Quick" : m === "history" ? "History" : "Timetable"}
+              {m === "quick" ? "Quick" : m === "history" ? "History" : m === "rooms" ? "Rooms" : "Timetable"}
             </button>
           ))}
         </div>
@@ -846,15 +1047,33 @@ const HeroRing = memo(function HeroRing({ pct, statusText, statusColor, total, a
 /* ============================================================
    Insights
    ============================================================ */
-function InsightsPanel({ status, target, safe, total }: { status: string; target: number; safe: number; total: number }) {
+function InsightsPanel({ status, target, safe, total, streak, badge }: {
+  status: string; target: number; safe: number; total: number; streak: number; badge: { label: string; icon: string; next: number };
+}) {
   const targetActive = status === "danger";
   const safeActive = status !== "danger";
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <InsightCard active={targetActive} color="var(--color-danger)" eyebrow="Target to Safety" big={target} unit={target === 1 ? "class" : "classes"}
         detail={total === 0 ? "Enter data to see your target." : `Attend the next ${target} classes consecutively to reach 75%.`} />
-      <InsightCard active={safeActive} color="var(--color-success)" eyebrow="Safe Skip Margin" big={safe} unit={safe === 1 ? "class" : "classes"}
-        detail={total === 0 ? "Enter data to see how many you can skip." : `You can afford to skip ${safe} upcoming classes.`} />
+      <InsightCard active={safeActive} color="var(--color-warning)" eyebrow="Available Bunk Coins" big={safe} unit={safe === 1 ? "coin" : "coins"}
+        detail={total === 0 ? "Enter data to mint your budget." : `Each marked absence spends 1 coin. Keep coins above zero.`} />
+      <div className="glass tilt-3d relative overflow-hidden p-6 sm:col-span-2">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Streak Wallet</div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-5xl font-bold text-gradient">{streak}</span>
+              <span className="text-sm text-muted-foreground">day streak</span>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-right">
+            <div className="text-3xl">{badge.icon}</div>
+            <div className="text-sm font-bold text-foreground">{badge.label}</div>
+            <div className="text-[10px] text-muted-foreground">Next badge at {badge.next} days</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -873,6 +1092,380 @@ function InsightCard({ active, color, eyebrow, big, unit, detail }: { active: bo
         <div className="text-sm text-muted-foreground">{unit}</div>
       </div>
       <p className="mt-3 text-sm text-foreground/80">{detail}</p>
+    </div>
+  );
+}
+
+function BadgePopup({ badge, onDismiss }: {
+  badge: { icon: string; label: string; streak: number } | null;
+  onDismiss: () => void;
+}) {
+  if (!badge) return null;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+      <div className="animate-pop-in pointer-events-auto flex max-w-sm items-center gap-3 rounded-3xl border border-warning/50 bg-popover/90 p-4 shadow-2xl backdrop-blur-xl"
+        style={{ boxShadow: "0 0 48px -12px var(--color-warning)" }}>
+        <div className="text-4xl">{badge.icon}</div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-black text-foreground">Badge unlocked</div>
+          <div className="text-xs text-muted-foreground">{badge.label} · {badge.streak} attended days in a row</div>
+        </div>
+        <button onClick={onDismiss} className="rounded-full px-2 text-muted-foreground hover:text-foreground" aria-label="Dismiss badge">✕</button>
+      </div>
+    </div>
+  );
+}
+
+function nextClassSlot(detailed: DetailedData) {
+  const cur = new Date(todayISO() + "T00:00:00");
+  for (let guard = 0; guard < 21; guard++) {
+    const iso = cur.toISOString().slice(0, 10);
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    if (dayKey && !detailed.holidays.includes(iso)) {
+      const idx = detailed.timetable[dayKey].findIndex((s) => s.trim());
+      if (idx >= 0) {
+        return { iso, subject: detailed.timetable[dayKey][idx].trim(), slot: detailed.periods[idx] ?? `P${idx + 1}` };
+      }
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return { iso: todayISO(), subject: "Next lecture", slot: "Upcoming slot" };
+}
+
+function RoomsHub({ user, social, setSocial, stats, detailed, roadmap, wrapped, onToggleNotify }: {
+  user: ReturnType<typeof useAuth>["user"];
+  social: SocialData;
+  setSocial: (u: SocialData | ((d: SocialData) => SocialData)) => void;
+  stats: { attendancePct: number; statusBadge: SafetyBadge; activeStreak: number; bunkCoins: number };
+  detailed: DetailedData;
+  roadmap: { iso: string; label: string; pct: number }[];
+  wrapped: { mostSkipped: string; closestCall: string; hours: number };
+  onToggleNotify: (v: boolean) => void;
+}) {
+  const fetchRooms = useServerFn(listMyRooms);
+  const createRoom = useServerFn(createAttendanceRoom);
+  const joinRoom = useServerFn(joinAttendanceRoom);
+  const fetchSnapshot = useServerFn(getRoomSnapshot);
+  const syncStats = useServerFn(syncRoomMemberStats);
+  const createPoll = useServerFn(createMassBunkPoll);
+  const votePoll = useServerFn(voteMassBunkPoll);
+  const sendSos = useServerFn(sendSosBroadcast);
+
+  const [rooms, setRooms] = useState<RoomRow[]>([]);
+  const [snapshot, setSnapshot] = useState<{ room: RoomRow; members: RoomMemberRow[]; polls: PollRow[]; votes: VoteRow[]; sos: SosRow[] } | null>(null);
+  const [roomName, setRoomName] = useState("My Attendance Room");
+  const [inviteCode, setInviteCode] = useState("");
+  const [displayName, setDisplayName] = useState(social.displayName || user?.email?.split("@")[0] || "Student");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const activeRoomId = social.activeRoomId || rooms[0]?.id;
+  const nextClass = useMemo(() => nextClassSlot(detailed), [detailed]);
+
+  const refreshRooms = useCallback(async () => {
+    if (!user) return;
+    try {
+      const rows = await fetchRooms();
+      setRooms(rows as RoomRow[]);
+      if (!social.activeRoomId && rows?.[0]?.id) setSocial((s) => ({ ...s, activeRoomId: rows[0].id }));
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load rooms"); }
+  }, [user, fetchRooms, social.activeRoomId, setSocial]);
+
+  const refreshSnapshot = useCallback(async () => {
+    if (!activeRoomId) { setSnapshot(null); return; }
+    try {
+      const snap = await fetchSnapshot({ data: { roomId: activeRoomId } });
+      setSnapshot(snap as typeof snapshot);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load room"); }
+  }, [activeRoomId, fetchSnapshot]);
+
+  useEffect(() => { refreshRooms(); }, [refreshRooms]);
+  useEffect(() => { refreshSnapshot(); }, [refreshSnapshot]);
+
+  useEffect(() => {
+    if (!activeRoomId || !user) return;
+    const t = window.setTimeout(() => {
+      syncStats({ data: { roomId: activeRoomId, displayName: displayName.trim() || "Student", stats } }).catch(() => {});
+      setSocial((s) => ({ ...s, displayName: displayName.trim() || "Student" }));
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [activeRoomId, user, displayName, stats, syncStats, setSocial]);
+
+  useEffect(() => {
+    if (!activeRoomId) return;
+    const channel = supabase
+      .channel(`attendance-room-${activeRoomId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "room_members", filter: `room_id=eq.${activeRoomId}` }, () => refreshSnapshot())
+      .on("postgres_changes", { event: "*", schema: "public", table: "mass_bunk_polls", filter: `room_id=eq.${activeRoomId}` }, () => refreshSnapshot())
+      .on("postgres_changes", { event: "*", schema: "public", table: "mass_bunk_votes" }, () => refreshSnapshot())
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sos_broadcasts", filter: `room_id=eq.${activeRoomId}` }, (payload) => {
+        const row = payload.new as SosRow;
+        refreshSnapshot();
+        if (row.sender_id !== user?.id) fireNotification("🚨 SOS Proxy", row.message, `sos-${row.id}`);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeRoomId, refreshSnapshot, user?.id]);
+
+  const handleCreate = async () => {
+    setBusy("create"); setError(null);
+    try {
+      const room = await createRoom({ data: { name: roomName, displayName: displayName.trim() || "Student", stats } }) as RoomRow;
+      setRooms((r) => [room, ...r.filter((x) => x.id !== room.id)]);
+      setSocial((s) => ({ ...s, displayName: displayName.trim() || "Student", activeRoomId: room.id }));
+    } catch (e) { setError(e instanceof Error ? e.message : "Room creation failed"); }
+    finally { setBusy(null); }
+  };
+
+  const handleJoin = async () => {
+    setBusy("join"); setError(null);
+    try {
+      const room = await joinRoom({ data: { inviteCode, displayName: displayName.trim() || "Student", stats } }) as RoomRow;
+      setRooms((r) => [room, ...r.filter((x) => x.id !== room.id)]);
+      setSocial((s) => ({ ...s, displayName: displayName.trim() || "Student", activeRoomId: room.id }));
+      setInviteCode("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Join failed"); }
+    finally { setBusy(null); }
+  };
+
+  const handlePoll = async () => {
+    if (!activeRoomId) return;
+    setBusy("poll"); setError(null);
+    try {
+      await createPoll({ data: { roomId: activeRoomId, subject: nextClass.subject, classSlot: nextClass.slot, classDate: nextClass.iso } });
+      await refreshSnapshot();
+    } catch (e) { setError(e instanceof Error ? e.message : "Poll failed"); }
+    finally { setBusy(null); }
+  };
+
+  const handleSos = async () => {
+    if (!activeRoomId) return;
+    setBusy("sos"); setError(null);
+    try {
+      await onToggleNotify(true);
+      const sos = await sendSos({ data: { roomId: activeRoomId, senderName: displayName.trim() || "A friend", subject: nextClass.subject, classSlot: nextClass.slot } }) as SosRow;
+      fireNotification("🚨 SOS Proxy", sos.message, `sos-${sos.id}`);
+      await refreshSnapshot();
+    } catch (e) { setError(e instanceof Error ? e.message : "SOS failed"); }
+    finally { setBusy(null); }
+  };
+
+  if (!user) {
+    return (
+      <div className="glass-neon p-6 text-center">
+        <h2 className="text-xl font-bold">Attendance Rooms</h2>
+        <p className="mt-2 text-sm text-muted-foreground">Sign in to create private rooms, live leaderboards, polls, SOS alerts, and shareable Wrapped cards.</p>
+        <Link to="/auth" className="mt-5 inline-flex rounded-full px-5 py-3 text-sm font-bold text-primary-foreground" style={{ background: "var(--gradient-primary)" }}>Sign in to collaborate</Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="glass-neon p-4 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold">Attendance Rooms</h2>
+            <p className="text-xs text-muted-foreground sm:text-sm">Live friend tracking, anonymous bunk planning, emergency roll-call proxy, recovery roadmap, and semester wrapped.</p>
+          </div>
+          <div className="rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-right">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Bunk Coins</div>
+            <div className="text-3xl font-black" style={{ color: "var(--color-warning)" }}>{stats.bunkCoins}</div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Your room name</span>
+            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+          </label>
+          <label className="block">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">New room title</span>
+            <input value={roomName} onChange={(e) => setRoomName(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary" />
+          </label>
+          <button onClick={handleCreate} disabled={busy === "create"} className="self-end rounded-xl px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50" style={{ background: "var(--gradient-primary)" }}>{busy === "create" ? "Creating…" : "Create room"}</button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))} placeholder="Invite code" className="min-w-[150px] flex-1 rounded-xl border border-border bg-input px-3 py-2 text-sm uppercase tracking-[0.25em] text-foreground outline-none focus:border-primary" />
+          <button onClick={handleJoin} disabled={busy === "join" || inviteCode.length !== 6} className="rounded-xl border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-bold text-primary disabled:opacity-40">Join room</button>
+        </div>
+        {error && <div className="mt-3 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
+
+        {rooms.length > 0 && (
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {rooms.map((room) => (
+              <button key={room.id} onClick={() => setSocial((s) => ({ ...s, activeRoomId: room.id }))}
+                className={`shrink-0 rounded-2xl border px-4 py-2 text-left text-xs transition ${activeRoomId === room.id ? "border-primary bg-primary/10 text-primary" : "border-border bg-background/40 text-foreground hover:border-primary/50"}`}>
+                <div className="font-bold">{room.name}</div>
+                <div className="font-mono text-[10px] text-muted-foreground">{room.invite_code}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {snapshot ? (
+        <>
+          <RoomLeaderboard room={snapshot.room} members={snapshot.members} currentUserId={user.id} />
+          <div className="grid gap-5 lg:grid-cols-2">
+            <MassBunkPlanner
+              members={snapshot.members}
+              polls={snapshot.polls}
+              votes={snapshot.votes}
+              userId={user.id}
+              busy={busy}
+              onCreate={handlePoll}
+              onVote={async (pollId, intent) => { await votePoll({ data: { pollId, intent } }); await refreshSnapshot(); }}
+              nextClass={nextClass}
+            />
+            <SosPanel sos={snapshot.sos} nextClass={nextClass} busy={busy} onSend={handleSos} />
+          </div>
+        </>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Create or join a room to unlock the live dashboard.</div>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <RecoveryRoadmap roadmap={roadmap} pct={stats.attendancePct} />
+        <WrappedCard wrapped={wrapped} stats={stats} />
+      </div>
+    </div>
+  );
+}
+
+function RoomLeaderboard({ room, members, currentUserId }: { room: RoomRow; members: RoomMemberRow[]; currentUserId: string }) {
+  return (
+    <div className="glass p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold">{room.name} Leaderboard</h3>
+          <div className="text-xs text-muted-foreground">Invite code <span className="font-mono text-primary">{room.invite_code}</span></div>
+        </div>
+        <button onClick={() => navigator.clipboard?.writeText(room.invite_code)} className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary">Copy code</button>
+      </div>
+      <div className="mt-4 grid gap-2">
+        {members.map((m, idx) => {
+          const color = m.status_badge === "Safe" ? "var(--color-success)" : m.status_badge === "On the Edge" ? "var(--color-warning)" : "var(--color-danger)";
+          return (
+            <div key={m.id} className="flex items-center gap-3 rounded-2xl border border-border bg-background/30 p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-black text-primary">#{idx + 1}</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-bold text-foreground">{m.display_name}{m.user_id === currentUserId ? " · You" : ""}</div>
+                <div className="text-[10px] text-muted-foreground">🔥 {m.active_streak} day streak · 🪙 {m.bunk_coins} coins</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xl font-black" style={{ color }}>{Number(m.attendance_pct).toFixed(1)}%</div>
+                <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color }}>{m.status_badge}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MassBunkPlanner({ members, polls, votes, userId, busy, onCreate, onVote, nextClass }: {
+  members: RoomMemberRow[]; polls: PollRow[]; votes: VoteRow[]; userId: string; busy: string | null;
+  onCreate: () => void; onVote: (pollId: string, intent: "attending" | "bunking") => Promise<void>; nextClass: { iso: string; subject: string; slot: string };
+}) {
+  return (
+    <div className="glass p-4 sm:p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold">Anonymous Mass Bunk Planner</h3>
+          <p className="text-xs text-muted-foreground">Next slot: {nextClass.subject} · {nextClass.slot}</p>
+        </div>
+        <button onClick={onCreate} disabled={busy === "poll"} className="rounded-full px-3 py-2 text-xs font-bold text-primary-foreground disabled:opacity-50" style={{ background: "var(--gradient-primary)" }}>{busy === "poll" ? "Launching…" : "Launch poll"}</button>
+      </div>
+      <div className="mt-4 space-y-3">
+        {polls.length === 0 ? <div className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">No active intent polls.</div> : polls.map((poll) => {
+          const pv = votes.filter((v) => v.poll_id === poll.id);
+          const bunking = pv.filter((v) => v.intent === "bunking").length;
+          const confidence = members.length ? Math.round((bunking / members.length) * 100) : 0;
+          const mine = pv.find((v) => v.user_id === userId)?.intent;
+          const safe = confidence >= 85;
+          return (
+            <div key={poll.id} className="rounded-2xl border border-border bg-background/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold text-foreground">{poll.subject}</div>
+                  <div className="text-[10px] text-muted-foreground">{poll.class_date} · {poll.class_slot}</div>
+                </div>
+                <span className="rounded-full px-2 py-1 text-[10px] font-black" style={{ color: safe ? "var(--color-success)" : "var(--color-danger)", background: safe ? "color-mix(in oklab, var(--color-success) 12%, transparent)" : "color-mix(in oklab, var(--color-danger) 12%, transparent)" }}>{safe ? "SAFE TO BUNK" : "UNSAFE TO BUNK"}</span>
+              </div>
+              <div className="mt-3 h-3 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full transition-all" style={{ width: `${confidence}%`, background: safe ? "var(--color-success)" : "var(--color-danger)" }} />
+              </div>
+              <div className="mt-1 text-[10px] text-muted-foreground">{confidence}% bunk confidence · needs 85%</div>
+              <div className="mt-3 flex gap-2">
+                <button onClick={() => onVote(poll.id, "attending")} className={`flex-1 rounded-xl border px-3 py-2 text-xs font-bold ${mine === "attending" ? "border-success bg-success/10 text-success" : "border-border text-foreground"}`}>Attending</button>
+                <button onClick={() => onVote(poll.id, "bunking")} className={`flex-1 rounded-xl border px-3 py-2 text-xs font-bold ${mine === "bunking" ? "border-warning bg-warning/10 text-warning" : "border-border text-foreground"}`}>Bunking</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SosPanel({ sos, nextClass, busy, onSend }: { sos: SosRow[]; nextClass: { subject: string; slot: string }; busy: string | null; onSend: () => void }) {
+  return (
+    <div className="glass p-4 sm:p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-bold">SOS Proxy Broadcast</h3>
+          <p className="text-xs text-muted-foreground">{nextClass.subject} · {nextClass.slot}</p>
+        </div>
+        <button onClick={onSend} disabled={busy === "sos"} className="rounded-full border border-destructive/50 bg-destructive/15 px-4 py-2 text-xs font-black text-destructive disabled:opacity-50">🚨 SOS</button>
+      </div>
+      <div className="mt-4 space-y-2">
+        {sos.length === 0 ? <div className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">No active emergency broadcasts.</div> : sos.map((row) => (
+          <div key={row.id} className="rounded-2xl border border-destructive/35 bg-destructive/10 p-3">
+            <div className="text-sm font-bold text-foreground">{row.sender_name}</div>
+            <div className="text-xs text-muted-foreground">{row.message}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecoveryRoadmap({ roadmap, pct }: { roadmap: { iso: string; label: string; pct: number }[]; pct: number }) {
+  return (
+    <div className="glass p-4 sm:p-6">
+      <h3 className="text-lg font-bold">Roadmap to Safety</h3>
+      {pct >= 75 ? <p className="mt-2 text-sm text-success">You are above 75%. Protect the safe zone by spending bunk coins carefully.</p> : (
+        <div className="mt-4 space-y-3">
+          {roadmap.length === 0 ? <div className="text-sm text-muted-foreground">Fill your timetable to generate recovery milestones.</div> : roadmap.map((m, i) => (
+            <div key={`${m.iso}-${i}`} className="flex gap-3 rounded-2xl border border-border bg-background/30 p-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-black text-primary">{i + 1}</div>
+              <div><div className="text-sm font-semibold text-foreground">{m.label}</div><div className="text-[10px] text-muted-foreground">Calendar milestone · {m.iso}</div></div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WrappedCard({ wrapped, stats }: { wrapped: { mostSkipped: string; closestCall: string; hours: number }; stats: { attendancePct: number; activeStreak: number; bunkCoins: number } }) {
+  const share = async () => {
+    const text = `My AttendEdge Wrapped: ${stats.attendancePct}% attendance, ${stats.activeStreak}-day streak, ${stats.bunkCoins} bunk coins, ${wrapped.hours} academic hours logged.`;
+    if (navigator.share) await navigator.share({ title: "Semester Wrapped", text });
+    else await navigator.clipboard?.writeText(text);
+  };
+  return (
+    <div className="relative overflow-hidden rounded-3xl border border-primary/35 p-5 shadow-2xl" style={{ background: "linear-gradient(135deg, color-mix(in oklab, var(--neon-cyan) 28%, var(--background)), color-mix(in oklab, var(--neon-magenta) 30%, var(--background)))" }}>
+      <div className="text-[10px] font-black uppercase tracking-[0.25em] text-primary-foreground/70">Semester Wrapped</div>
+      <div className="mt-3 text-5xl font-black text-primary-foreground">{stats.attendancePct}%</div>
+      <div className="text-sm font-semibold text-primary-foreground/80">Final attendance vibe</div>
+      <div className="mt-5 grid gap-3 text-primary-foreground">
+        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Most skipped day</div><div className="font-bold">{wrapped.mostSkipped}</div></div>
+        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Closest call with 75%</div><div className="font-bold">{wrapped.closestCall}</div></div>
+        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Academic hours logged</div><div className="font-bold">{wrapped.hours} hrs</div></div>
+      </div>
+      <button onClick={share} className="mt-5 rounded-full bg-background/80 px-4 py-2 text-xs font-black text-foreground">Share Wrapped</button>
     </div>
   );
 }
