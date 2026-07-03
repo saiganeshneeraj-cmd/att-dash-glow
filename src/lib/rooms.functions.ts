@@ -84,7 +84,7 @@ export const joinAttendanceRoom = createServerFn({ method: "POST" })
   }).parse(input))
   .handler(async ({ data, context }) => {
     const { supabase } = context;
-    const { data: room, error } = await supabase.rpc("join_room_by_code", {
+    const { data: room, error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>)("join_room_by_code", {
       _code: data.inviteCode,
       _display_name: data.displayName,
       _pct: data.stats.attendancePct,
