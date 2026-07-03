@@ -1047,15 +1047,33 @@ const HeroRing = memo(function HeroRing({ pct, statusText, statusColor, total, a
 /* ============================================================
    Insights
    ============================================================ */
-function InsightsPanel({ status, target, safe, total }: { status: string; target: number; safe: number; total: number }) {
+function InsightsPanel({ status, target, safe, total, streak, badge }: {
+  status: string; target: number; safe: number; total: number; streak: number; badge: { label: string; icon: string; next: number };
+}) {
   const targetActive = status === "danger";
   const safeActive = status !== "danger";
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <InsightCard active={targetActive} color="var(--color-danger)" eyebrow="Target to Safety" big={target} unit={target === 1 ? "class" : "classes"}
         detail={total === 0 ? "Enter data to see your target." : `Attend the next ${target} classes consecutively to reach 75%.`} />
-      <InsightCard active={safeActive} color="var(--color-success)" eyebrow="Safe Skip Margin" big={safe} unit={safe === 1 ? "class" : "classes"}
-        detail={total === 0 ? "Enter data to see how many you can skip." : `You can afford to skip ${safe} upcoming classes.`} />
+      <InsightCard active={safeActive} color="var(--color-warning)" eyebrow="Available Bunk Coins" big={safe} unit={safe === 1 ? "coin" : "coins"}
+        detail={total === 0 ? "Enter data to mint your budget." : `Each marked absence spends 1 coin. Keep coins above zero.`} />
+      <div className="glass tilt-3d relative overflow-hidden p-6 sm:col-span-2">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Streak Wallet</div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-5xl font-bold text-gradient">{streak}</span>
+              <span className="text-sm text-muted-foreground">day streak</span>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 text-right">
+            <div className="text-3xl">{badge.icon}</div>
+            <div className="text-sm font-bold text-foreground">{badge.label}</div>
+            <div className="text-[10px] text-muted-foreground">Next badge at {badge.next} days</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
