@@ -9,7 +9,7 @@ import { loadCached, saveCached } from "@/lib/local-store";
 import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import {
-  createAttendanceRoom, createMassBunkPoll, getRoomSnapshot, joinAttendanceRoom,
+  createAttendanceRoom, createMassBunkPoll, deleteAttendanceRoom, getRoomSnapshot, joinAttendanceRoom,
   listMyRooms, sendSosBroadcast, syncRoomMemberStats, voteMassBunkPoll,
 } from "@/lib/rooms.functions";
 import {
@@ -567,8 +567,14 @@ function AttendancePage() {
         if (d.states[`${iso}__${idx}`]) loggedToday = true;
       });
     }
-    return { classesToday, loggedToday, pct };
-  }, [pct]);
+    // If user skips ALL of today's remaining classes: attended stays, total grows by classesToday
+    const projMissAll = classesToday > 0 && total >= 0
+      ? pctFor(attended, total + classesToday)
+      : pct;
+    const drop = Math.max(0, Math.round((pct - projMissAll) * 10) / 10);
+    return { classesToday, loggedToday, pct, projMissAll, drop };
+  }, [pct, attended, total]);
+
 
   const projectProximity = useCallback(() => {
     const s = stateRef.current;
@@ -601,13 +607,24 @@ function AttendancePage() {
     if (!isNotificationCapable() || Notification.permission !== "granted") return;
 
     const cancels: Array<() => void> = [];
-    cancels.push(scheduleDaily(8, 0, () => {
+    const fireImpact = (tag: string, prefix: string) => {
       const info = computeTodayInfo();
-      const msg = info.classesToday > 0
-        ? `You have ${info.classesToday} scheduled class${info.classesToday === 1 ? "" : "es"} today. Attendance ${info.pct}% — stay above 75%!`
-        : `No scheduled classes today. Attendance ${info.pct}%.`;
-      fireNotification("Good morning ☀️", msg, "attendedge-morning");
-    }));
+      if (info.classesToday > 0) {
+        const impact = info.drop > 0
+          ? `Skip all ${info.classesToday} → attendance drops ${info.pct}% → ${info.projMissAll}% (−${info.drop}%).`
+          : `Marking today keeps you at ${info.pct}%.`;
+        fireNotification(prefix,
+          `${info.classesToday} class${info.classesToday === 1 ? "" : "es"} today. ${impact}`,
+          tag);
+      } else {
+        fireNotification(prefix, `No scheduled classes today. Attendance ${info.pct}%.`, tag);
+      }
+    };
+    cancels.push(scheduleDaily(8, 0, () => fireImpact("attendedge-morning", "Good morning ☀️")));
+    // Also fire once ~5s after enabling so the user sees today's impact immediately
+    const initial = window.setTimeout(() => fireImpact("attendedge-impact-now", "Today's attendance impact 📊"), 4000);
+    cancels.push(() => window.clearTimeout(initial));
+
     cancels.push(scheduleDaily(18, 0, () => {
       const info = computeTodayInfo();
       if (info.classesToday > 0 && !info.loggedToday) {
@@ -1134,6 +1151,7 @@ function RoomsHub({ user, social, setSocial, stats, detailed, roadmap, wrapped, 
   const createPoll = useServerFn(createMassBunkPoll);
   const votePoll = useServerFn(voteMassBunkPoll);
   const sendSos = useServerFn(sendSosBroadcast);
+  const deleteRoom = useServerFn(deleteAttendanceRoom);
 
   const [rooms, setRooms] = useState<RoomRow[]>([]);
   const [snapshot, setSnapshot] = useState<{ room: RoomRow; members: RoomMemberRow[]; polls: PollRow[]; votes: VoteRow[]; sos: SosRow[] } | null>(null);
@@ -1233,6 +1251,18 @@ function RoomsHub({ user, social, setSocial, stats, detailed, roadmap, wrapped, 
     finally { setBusy(null); }
   };
 
+  const handleDeleteRoom = async (roomId: string, roomName: string) => {
+    if (!window.confirm(`Delete room "${roomName}"? This removes all members, polls, and SOS history. This cannot be undone.`)) return;
+    setBusy("delete"); setError(null);
+    try {
+      await deleteRoom({ data: { roomId } });
+      setRooms((r) => r.filter((x) => x.id !== roomId));
+      setSocial((s) => (s.activeRoomId === roomId ? { ...s, activeRoomId: undefined } : s));
+      setSnapshot(null);
+    } catch (e) { setError(e instanceof Error ? e.message : "Delete failed"); }
+    finally { setBusy(null); }
+  };
+
   if (!user) {
     return (
       <div className="glass-neon p-6 text-center">
@@ -1276,13 +1306,28 @@ function RoomsHub({ user, social, setSocial, stats, detailed, roadmap, wrapped, 
 
         {rooms.length > 0 && (
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {rooms.map((room) => (
-              <button key={room.id} onClick={() => setSocial((s) => ({ ...s, activeRoomId: room.id }))}
-                className={`shrink-0 rounded-2xl border px-4 py-2 text-left text-xs transition ${activeRoomId === room.id ? "border-primary bg-primary/10 text-primary" : "border-border bg-background/40 text-foreground hover:border-primary/50"}`}>
-                <div className="font-bold">{room.name}</div>
-                <div className="font-mono text-[10px] text-muted-foreground">{room.invite_code}</div>
-              </button>
-            ))}
+            {rooms.map((room) => {
+              const owned = room.owner_id === user.id;
+              return (
+                <div key={room.id}
+                  className={`relative shrink-0 rounded-2xl border transition ${activeRoomId === room.id ? "border-primary bg-primary/10" : "border-border bg-background/40 hover:border-primary/50"}`}>
+                  <button onClick={() => setSocial((s) => ({ ...s, activeRoomId: room.id }))}
+                    className={`block px-4 py-2 pr-8 text-left text-xs ${activeRoomId === room.id ? "text-primary" : "text-foreground"}`}>
+                    <div className="font-bold">{room.name}{owned ? " · Owner" : ""}</div>
+                    <div className="font-mono text-[10px] text-muted-foreground">{room.invite_code}</div>
+                  </button>
+                  {owned && (
+                    <button
+                      onClick={() => handleDeleteRoom(room.id, room.name)}
+                      disabled={busy === "delete"}
+                      title="Delete room"
+                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-xs text-destructive hover:bg-destructive/10 disabled:opacity-40">
+                      ✕
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
