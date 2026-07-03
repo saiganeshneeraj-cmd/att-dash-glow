@@ -1189,26 +1189,102 @@ function LogPanel({
     });
   }, [setDetailed]);
 
+  // Refs to each day card for the carousel jump-to
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const jumpToDay = useCallback((iso: string) => {
+    const el = cardRefs.current[iso];
+    const container = scrollerRef.current;
+    if (!el || !container) return;
+    container.scrollTo({ top: el.offsetTop - container.offsetTop - 8, behavior: "smooth" });
+  }, []);
+
+  const todayIsoStr = todayISO();
+
+  // Start Date fallback toolbar — always visible inside Daily Log
+  const StartDateToolbar = (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/30 p-3">
+      <label className="flex min-w-0 items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+        <span>📅 Class Start Date</span>
+        <input
+          type="date"
+          value={detailed.startDate}
+          max={todayIsoStr}
+          onChange={(e) => setDetailed((d) => ({ ...d, startDate: e.target.value }))}
+          className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs font-medium normal-case tracking-normal text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/40"
+        />
+      </label>
+      <span className="text-[10px] text-muted-foreground">
+        Forgot to set it earlier? Update anytime — the log rebuilds instantly.
+      </span>
+    </div>
+  );
+
   if (dates.length === 0) {
     return (
-      <div className="mt-6 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        Fill in subjects in the Setup tab (or load a section preset) to generate your daily log.
+      <div className="mt-5 animate-fade-in">
+        {StartDateToolbar}
+        <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          Fill in subjects in the Setup tab (or load a section preset) to generate your daily log.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mt-5 max-h-[640px] space-y-5 overflow-y-auto pr-1 animate-fade-in">
-      {dates.map(({ iso, day, label }) => (
-        <DayCard key={iso} iso={iso} day={day} label={label}
-          isHoliday={holidaySet.has(iso)}
-          row={detailed.timetable[day]}
-          periods={detailed.periods}
-          states={detailed.states}
-          onSetState={setClassState}
-          onToggleHoliday={toggleHoliday}
-          onMarkDay={markDay} />
-      ))}
+    <div className="mt-5 animate-fade-in">
+      {StartDateToolbar}
+
+      {/* Day carousel — jump directly to any day */}
+      <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-2"
+        style={{ scrollSnapType: "x mandatory" }}>
+        {dates.map(({ iso, day, label }) => {
+          const isToday = iso === todayIsoStr;
+          const isHoliday = holidaySet.has(iso);
+          const dateNum = label.split(", ")[1]?.split(" ").slice(-1)[0] ?? "";
+          return (
+            <button
+              key={iso}
+              onClick={() => jumpToDay(iso)}
+              className={`press-card group flex shrink-0 flex-col items-center rounded-2xl border px-3 py-2 text-center transition ${
+                isToday
+                  ? "border-transparent text-primary-foreground"
+                  : "border-border bg-background/40 text-foreground hover:border-primary"
+              }`}
+              style={{
+                scrollSnapAlign: "start",
+                minWidth: 62,
+                background: isToday ? "var(--gradient-primary)" : undefined,
+                boxShadow: isToday ? "0 0 20px -6px var(--neon-cyan)" : undefined,
+              }}
+              title={label}
+            >
+              <span className={`text-[9px] font-bold uppercase tracking-widest ${isToday ? "opacity-90" : "text-muted-foreground"}`}>{day}</span>
+              <span className="text-lg font-black leading-none" style={{ fontFamily: "var(--font-display)" }}>{dateNum}</span>
+              {isHoliday && <span className="mt-0.5 text-[8px] opacity-80">Holiday</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div ref={scrollerRef} className="max-h-[640px] space-y-5 overflow-y-auto pr-1">
+        {dates.map(({ iso, day, label }) => (
+          <div
+            key={iso}
+            ref={(el) => { cardRefs.current[iso] = el; }}
+            style={{ contentVisibility: "auto", containIntrinsicSize: "320px" } as React.CSSProperties}
+          >
+            <DayCard iso={iso} day={day} label={label}
+              isHoliday={holidaySet.has(iso)}
+              row={detailed.timetable[day]}
+              periods={detailed.periods}
+              states={detailed.states}
+              onSetState={setClassState}
+              onToggleHoliday={toggleHoliday}
+              onMarkDay={markDay} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
