@@ -867,13 +867,13 @@ function Header({
 
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <div className="inline-flex rounded-full border border-border bg-card p-1 backdrop-blur-md">
-          {(["detailed", "quick", "history"] as Mode[]).map((m) => (
+          {(["detailed", "quick", "history", "rooms"] as Mode[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`rounded-full px-3 py-2 text-xs font-medium transition-all sm:px-4 sm:text-sm ${
                 mode === m ? "text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground"
               }`}
               style={mode === m ? { background: "var(--gradient-primary)" } : undefined}>
-              {m === "quick" ? "Quick" : m === "history" ? "History" : "Timetable"}
+              {m === "quick" ? "Quick" : m === "history" ? "History" : m === "rooms" ? "Rooms" : "Timetable"}
             </button>
           ))}
         </div>
