@@ -1306,13 +1306,28 @@ function RoomsHub({ user, social, setSocial, stats, detailed, roadmap, wrapped, 
 
         {rooms.length > 0 && (
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            {rooms.map((room) => (
-              <button key={room.id} onClick={() => setSocial((s) => ({ ...s, activeRoomId: room.id }))}
-                className={`shrink-0 rounded-2xl border px-4 py-2 text-left text-xs transition ${activeRoomId === room.id ? "border-primary bg-primary/10 text-primary" : "border-border bg-background/40 text-foreground hover:border-primary/50"}`}>
-                <div className="font-bold">{room.name}</div>
-                <div className="font-mono text-[10px] text-muted-foreground">{room.invite_code}</div>
-              </button>
-            ))}
+            {rooms.map((room) => {
+              const owned = room.owner_id === user.id;
+              return (
+                <div key={room.id}
+                  className={`relative shrink-0 rounded-2xl border transition ${activeRoomId === room.id ? "border-primary bg-primary/10" : "border-border bg-background/40 hover:border-primary/50"}`}>
+                  <button onClick={() => setSocial((s) => ({ ...s, activeRoomId: room.id }))}
+                    className={`block px-4 py-2 pr-8 text-left text-xs ${activeRoomId === room.id ? "text-primary" : "text-foreground"}`}>
+                    <div className="font-bold">{room.name}{owned ? " · Owner" : ""}</div>
+                    <div className="font-mono text-[10px] text-muted-foreground">{room.invite_code}</div>
+                  </button>
+                  {owned && (
+                    <button
+                      onClick={() => handleDeleteRoom(room.id, room.name)}
+                      disabled={busy === "delete"}
+                      title="Delete room"
+                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-xs text-destructive hover:bg-destructive/10 disabled:opacity-40">
+                      ✕
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
