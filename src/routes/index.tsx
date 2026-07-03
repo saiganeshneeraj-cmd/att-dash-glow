@@ -923,7 +923,7 @@ function DetailedTracker({
   onDeleteCustomPreset: (id: string) => void;
   captureUndo: (label: string) => void;
 }) {
-  const [tab, setTab] = useState<"setup" | "log">("setup");
+  const [tab, setTab] = useState<"setup" | "log" | "bulk">("setup");
 
   return (
     <div className="glass-neon overflow-hidden p-4 sm:p-6">
@@ -933,15 +933,17 @@ function DetailedTracker({
           <p className="text-xs text-muted-foreground sm:text-sm">
             {tab === "setup"
               ? "Step 1: load a preset or fill your grid, then head to Daily Log."
-              : "Step 2: tap any class to mark Attended / Missed."}
+              : tab === "log"
+              ? "Step 2: tap any class to mark Attended / Missed."
+              : "Bulk Edit: drag across cells or click row/column headers, then apply."}
           </p>
         </div>
         <div className="inline-flex shrink-0 rounded-full border border-border bg-background/40 p-1">
-          {(["setup", "log"] as const).map((t) => (
+          {(["setup", "log", "bulk"] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
-              className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${tab === t ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 sm:px-4 ${tab === t ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               style={tab === t ? { background: "var(--gradient-primary)" } : undefined}>
-              {t === "setup" ? "1 · Setup" : "2 · Daily Log"}
+              {t === "setup" ? "1 · Setup" : t === "log" ? "2 · Daily Log" : "⚡ Bulk Edit"}
             </button>
           ))}
         </div>
@@ -957,12 +959,15 @@ function DetailedTracker({
           onDeleteCustomPreset={onDeleteCustomPreset}
           onGoToLog={() => setTab("log")}
         />
-      ) : (
+      ) : tab === "log" ? (
         <LogPanel detailed={detailed} setDetailed={setDetailed} captureUndo={captureUndo} />
+      ) : (
+        <BulkEditPanel detailed={detailed} setDetailed={setDetailed} captureUndo={captureUndo} />
       )}
     </div>
   );
 }
+
 
 /* ---------- Preset picker ---------- */
 function PresetPicker({
