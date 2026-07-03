@@ -607,13 +607,24 @@ function AttendancePage() {
     if (!isNotificationCapable() || Notification.permission !== "granted") return;
 
     const cancels: Array<() => void> = [];
-    cancels.push(scheduleDaily(8, 0, () => {
+    const fireImpact = (tag: string, prefix: string) => {
       const info = computeTodayInfo();
-      const msg = info.classesToday > 0
-        ? `You have ${info.classesToday} scheduled class${info.classesToday === 1 ? "" : "es"} today. Attendance ${info.pct}% — stay above 75%!`
-        : `No scheduled classes today. Attendance ${info.pct}%.`;
-      fireNotification("Good morning ☀️", msg, "attendedge-morning");
-    }));
+      if (info.classesToday > 0) {
+        const impact = info.drop > 0
+          ? `Skip all ${info.classesToday} → attendance drops ${info.pct}% → ${info.projMissAll}% (−${info.drop}%).`
+          : `Marking today keeps you at ${info.pct}%.`;
+        fireNotification(prefix,
+          `${info.classesToday} class${info.classesToday === 1 ? "" : "es"} today. ${impact}`,
+          tag);
+      } else {
+        fireNotification(prefix, `No scheduled classes today. Attendance ${info.pct}%.`, tag);
+      }
+    };
+    cancels.push(scheduleDaily(8, 0, () => fireImpact("attendedge-morning", "Good morning ☀️")));
+    // Also fire once ~5s after enabling so the user sees today's impact immediately
+    const initial = window.setTimeout(() => fireImpact("attendedge-impact-now", "Today's attendance impact 📊"), 4000);
+    cancels.push(() => window.clearTimeout(initial));
+
     cancels.push(scheduleDaily(18, 0, () => {
       const info = computeTodayInfo();
       if (info.classesToday > 0 && !info.loggedToday) {
