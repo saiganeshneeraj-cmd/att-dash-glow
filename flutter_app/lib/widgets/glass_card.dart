@@ -31,15 +31,15 @@ class GlassCard extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withOpacity(0.06),
-                Colors.white.withOpacity(0.02),
+                Colors.white.withValues(alpha: 0.06),
+                Colors.white.withValues(alpha: 0.02),
               ],
             ),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             borderRadius: BorderRadius.circular(radius),
             boxShadow: [
               BoxShadow(
-                color: AuroraTheme.primary.withOpacity(0.10),
+                color: AuroraTheme.primary.withValues(alpha: 0.10),
                 blurRadius: 30,
                 offset: const Offset(0, 12),
               ),

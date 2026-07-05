@@ -58,7 +58,7 @@ class _RingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round
-      ..color = Colors.white.withOpacity(0.06);
+      ..color = Colors.white.withValues(alpha: 0.06);
     canvas.drawCircle(center, radius, bg);
 
     final sweep = (value / 100) * 2 * pi;

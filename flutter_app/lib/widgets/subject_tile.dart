@@ -54,9 +54,9 @@ class SubjectTile extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.15),
+                  color: color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: color.withOpacity(0.4)),
+                  border: Border.all(color: color.withValues(alpha: 0.4)),
                 ),
                 child: Text('${pct.toStringAsFixed(1)}%',
                     style: TextStyle(color: color, fontWeight: FontWeight.w700)),
@@ -74,7 +74,7 @@ class SubjectTile extends StatelessWidget {
             child: LinearProgressIndicator(
               value: (pct / 100).clamp(0, 1),
               minHeight: 6,
-              backgroundColor: Colors.white.withOpacity(0.06),
+              backgroundColor: Colors.white.withValues(alpha: 0.06),
               valueColor: AlwaysStoppedAnimation(color),
             ),
           ),
@@ -89,7 +89,7 @@ class SubjectTile extends StatelessWidget {
                   icon: const Icon(Icons.check, size: 18),
                   label: const Text('Present'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: AuroraTheme.success.withOpacity(0.18),
+                    backgroundColor: AuroraTheme.success.withValues(alpha: 0.18),
                     foregroundColor: AuroraTheme.success,
                   ),
                 ),
@@ -101,7 +101,7 @@ class SubjectTile extends StatelessWidget {
                   icon: const Icon(Icons.close, size: 18),
                   label: const Text('Absent'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: AuroraTheme.danger.withOpacity(0.15),
+                    backgroundColor: AuroraTheme.danger.withValues(alpha: 0.15),
                     foregroundColor: AuroraTheme.danger,
                   ),
                 ),

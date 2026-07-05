@@ -181,7 +181,7 @@ class _AuroraBackground extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: RadialGradient(
-            colors: [c.withOpacity(0.35), c.withOpacity(0.0)],
+            colors: [c.withValues(alpha: 0.35), c.withValues(alpha: 0.0)],
           ),
         ),
       );
