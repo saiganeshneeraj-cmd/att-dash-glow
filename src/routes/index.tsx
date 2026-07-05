@@ -769,11 +769,13 @@ function AttendancePage() {
 /* ============================================================
    Notification onboarding modal
    ============================================================ */
-function NotifyOnboardModal({ onEnable, onSkip, info }: {
+function NotifyOnboardModal({ onEnable, onSkip, onTest, info }: {
   onEnable: () => void;
   onSkip: () => void;
+  onTest: () => Promise<boolean>;
   info: { classesToday: number; loggedToday: boolean; pct: number; projMissAll: number; drop: number };
 }) {
+  const [testStatus, setTestStatus] = useState<"idle" | "sent" | "blocked">("idle");
   const hasClasses = info.classesToday > 0;
   return (
     <div className="fixed inset-x-0 top-0 z-[60] flex items-start justify-center bg-black/55 px-3 pb-10 pt-3 backdrop-blur-sm animate-fade-in sm:pt-5">
