@@ -1065,7 +1065,7 @@ const HeroRing = memo(function HeroRing({ pct, statusText, statusColor, total, a
   const dash = (clamped / 100) * c;
 
   return (
-    <div className="glass-neon tilt-3d animate-pop-in flex flex-col items-center justify-center overflow-hidden p-6 sm:p-8">
+    <div className="glass-neon tilt-3d sheen animate-pop-in flex flex-col items-center justify-center overflow-hidden p-6 sm:p-8">
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90 animate-spin-slow" style={{ filter: `drop-shadow(0 0 14px ${statusColor})` }}>
           <defs>
