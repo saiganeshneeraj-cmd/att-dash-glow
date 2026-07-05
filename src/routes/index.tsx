@@ -703,7 +703,7 @@ function AttendancePage() {
         <div className="scanline pointer-events-none absolute inset-0" />
       </div>
 
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="route-enter mx-auto w-full max-w-6xl">
         <Header
           mode={mode} setMode={setMode} hydrated={hydrated}
           user={user} syncStatus={syncStatus}
