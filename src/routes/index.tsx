@@ -832,8 +832,8 @@ function NotifyOnboardModal({ onEnable, onSkip, onTest, info }: {
             <button
               onClick={async () => { const ok = await onTest(); setTestStatus(ok ? "sent" : "blocked"); }}
               className="w-full rounded-xl border border-primary/40 bg-background/40 px-4 py-2 text-xs font-semibold text-foreground hover:bg-background/70">
-              {testStatus === "sent" ? "✓ Test alert sent — check your notifications"
-                : testStatus === "blocked" ? "Permission blocked — enable it in browser settings"
+              {testStatus === "sent" ? "✓ Test sent — if you don't see it, check OS notification settings"
+                : testStatus === "blocked" ? "Permission blocked — enable it in browser (iOS: install to Home Screen first)"
                 : "Send me a test alert now"}
             </button>
             <button onClick={onSkip}
