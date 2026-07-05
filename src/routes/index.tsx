@@ -14,7 +14,7 @@ import {
 } from "@/lib/rooms.functions";
 import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
-  scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
+  scheduleDaily, scheduleInterval, isNotificationCapable, ensureServiceWorker, type NotifyPrefs,
 } from "@/lib/notifications";
 
 export const Route = createFileRoute("/")({
@@ -653,6 +653,7 @@ function AttendancePage() {
   }, [hydrated, notifyPrefs.enabled, computeTodayInfo, projectProximity]);
 
   const enableNotifications = useCallback(async () => {
+    await ensureServiceWorker();
     const perm = await requestPermission();
     const enabled = perm === "granted";
     const next = { enabled, onboarded: true };
@@ -665,6 +666,17 @@ function AttendancePage() {
     }
   }, []);
 
+  const sendTestNotification = useCallback(async () => {
+    await ensureServiceWorker();
+    const perm = await requestPermission();
+    if (perm !== "granted") return false;
+    const info = computeTodayInfo();
+    const body = info.classesToday > 0
+      ? `${info.classesToday} class${info.classesToday === 1 ? "" : "es"} today · skip all → ${info.projMissAll}% (−${info.drop}%)`
+      : `No classes today. Current attendance ${info.pct}%.`;
+    return fireNotification("📊 Today's attendance impact", body, "attendedge-test");
+  }, [computeTodayInfo]);
+
   const skipOnboard = useCallback(() => {
     saveNotifyPrefs({ onboarded: true, enabled: false });
     setNotifyPrefs((p) => ({ ...p, onboarded: true, enabled: false }));
@@ -673,10 +685,9 @@ function AttendancePage() {
 
   const toggleNotifications = useCallback(async (want: boolean) => {
     if (want) {
-      const perm = await requestPermission();
-      const enabled = perm === "granted";
-      saveNotifyPrefs({ enabled, onboarded: true });
-      setNotifyPrefs((p) => ({ ...p, enabled, onboarded: true }));
+      // Always show the live preview before asking permission so users see
+      // exactly what an alert looks like with their current numbers.
+      setShowOnboard(true);
     } else {
       saveNotifyPrefs({ enabled: false });
       setNotifyPrefs((p) => ({ ...p, enabled: false }));
@@ -708,6 +719,12 @@ function AttendancePage() {
           <HeroRing pct={pct} statusText={statusText} statusColor={statusColor} total={total} attended={attended} />
           <InsightsPanel status={status} target={target} safe={safe} total={total} streak={activeStreak} badge={badge} />
         </section>
+
+        {hydrated && total > 0 && (
+          <section className="mt-6 animate-fade-in">
+            <WhatIfPlanner attended={attended} total={total} />
+          </section>
+        )}
 
         <section className="mt-6 animate-fade-in">
           {!hydrated ? (
@@ -749,7 +766,7 @@ function AttendancePage() {
       <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
       <BadgePopup badge={badgePopup} onDismiss={() => setBadgePopup(null)} />
       {showOnboard && (
-        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} info={computeTodayInfo()} />
+        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} onTest={sendTestNotification} info={computeTodayInfo()} />
       )}
     </main>
   );
@@ -758,11 +775,13 @@ function AttendancePage() {
 /* ============================================================
    Notification onboarding modal
    ============================================================ */
-function NotifyOnboardModal({ onEnable, onSkip, info }: {
+function NotifyOnboardModal({ onEnable, onSkip, onTest, info }: {
   onEnable: () => void;
   onSkip: () => void;
+  onTest: () => Promise<boolean>;
   info: { classesToday: number; loggedToday: boolean; pct: number; projMissAll: number; drop: number };
 }) {
+  const [testStatus, setTestStatus] = useState<"idle" | "sent" | "blocked">("idle");
   const hasClasses = info.classesToday > 0;
   return (
     <div className="fixed inset-x-0 top-0 z-[60] flex items-start justify-center bg-black/55 px-3 pb-10 pt-3 backdrop-blur-sm animate-fade-in sm:pt-5">
@@ -809,6 +828,13 @@ function NotifyOnboardModal({ onEnable, onSkip, info }: {
               className="w-full rounded-xl px-4 py-3 text-sm font-bold text-primary-foreground shadow-lg transition hover:brightness-110"
               style={{ background: "var(--gradient-primary)", boxShadow: "0 0 24px -4px var(--neon-magenta)" }}>
               Allow notifications
+            </button>
+            <button
+              onClick={async () => { const ok = await onTest(); setTestStatus(ok ? "sent" : "blocked"); }}
+              className="w-full rounded-xl border border-primary/40 bg-background/40 px-4 py-2 text-xs font-semibold text-foreground hover:bg-background/70">
+              {testStatus === "sent" ? "✓ Test alert sent — check your notifications"
+                : testStatus === "blocked" ? "Permission blocked — enable it in browser settings"
+                : "Send me a test alert now"}
             </button>
             <button onClick={onSkip}
               className="w-full rounded-xl border border-border bg-card/40 px-4 py-2 text-xs text-muted-foreground hover:text-foreground">
@@ -1117,6 +1143,88 @@ function InsightCard({ active, color, eyebrow, big, unit, detail }: { active: bo
         <div className="text-sm text-muted-foreground">{unit}</div>
       </div>
       <p className="mt-3 text-sm text-foreground/80">{detail}</p>
+    </div>
+  );
+}
+
+/* ============================================================
+   What-If Planner — interactive skip/attend simulator
+   ============================================================ */
+function WhatIfPlanner({ attended, total }: { attended: number; total: number }) {
+  const [skip, setSkip] = useState(0);
+  const [attend, setAttend] = useState(0);
+  const projTotal = total + skip + attend;
+  const projAttended = attended + attend;
+  const projPct = projTotal > 0 ? Math.round((projAttended / projTotal) * 1000) / 10 : 0;
+  const currentPct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+  const delta = Math.round((projPct - currentPct) * 10) / 10;
+  const safe = projPct >= 75;
+  const maxSkip = Math.min(40, Math.max(5, Math.round(total * 0.4)));
+  const maxAttend = Math.min(40, Math.max(5, Math.round(total * 0.4)));
+  // How many consecutive attends needed to reach 75% from current
+  const toRecover = attended >= total * 0.75
+    ? 0
+    : Math.max(0, Math.ceil((0.75 * total - attended) / 0.25));
+
+  return (
+    <div className="glass relative overflow-hidden p-5 sm:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">What-If Planner</div>
+          <h3 className="text-lg font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+            Simulate future classes
+          </h3>
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-black" style={{ color: safe ? "var(--color-warning)" : "var(--color-danger)", textShadow: `0 0 18px ${safe ? "var(--color-warning)" : "var(--color-danger)"}` }}>
+            {projPct}%
+          </span>
+          <span className={`text-xs font-semibold ${delta >= 0 ? "text-warning" : "text-destructive"}`}>
+            {delta >= 0 ? `+${delta}` : delta}%
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>🚫 Skip next</span>
+            <span className="font-bold text-destructive">{skip} class{skip === 1 ? "" : "es"}</span>
+          </div>
+          <input type="range" min={0} max={maxSkip} value={skip} onChange={(e) => setSkip(Number(e.target.value))}
+            className="w-full accent-[var(--color-danger)]" aria-label="Classes to skip" />
+        </div>
+        <div>
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>✅ Attend next</span>
+            <span className="font-bold text-warning">{attend} class{attend === 1 ? "" : "es"}</span>
+          </div>
+          <input type="range" min={0} max={maxAttend} value={attend} onChange={(e) => setAttend(Number(e.target.value))}
+            className="w-full accent-[var(--color-warning)]" aria-label="Classes to attend" />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Now</div>
+          <div className="text-lg font-bold text-foreground">{currentPct}%</div>
+          <div className="text-[11px] text-muted-foreground">{attended}/{total}</div>
+        </div>
+        <div className="rounded-xl border p-3" style={{ borderColor: safe ? "color-mix(in oklab, var(--color-warning) 55%, transparent)" : "color-mix(in oklab, var(--color-danger) 55%, transparent)", background: "color-mix(in oklab, var(--card) 60%, transparent)" }}>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Projected</div>
+          <div className="text-lg font-bold" style={{ color: safe ? "var(--color-warning)" : "var(--color-danger)" }}>{projPct}%</div>
+          <div className="text-[11px] text-muted-foreground">{projAttended}/{projTotal}</div>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Recovery</div>
+          <div className="text-lg font-bold text-foreground">{toRecover === 0 ? "0" : toRecover}</div>
+          <div className="text-[11px] text-muted-foreground">{toRecover === 0 ? "Already safe" : `attend to hit 75%`}</div>
+        </div>
+      </div>
+
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        Move the sliders to test scenarios — the projection updates live using your current numbers.
+      </p>
     </div>
   );
 }

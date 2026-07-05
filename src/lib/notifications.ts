@@ -48,8 +48,8 @@ export async function requestPermission(): Promise<NotificationPermission> {
   catch { return Notification.permission; }
 }
 
-export async function fireNotification(title: string, body: string, tag?: string) {
-  if (!isNotificationCapable() || Notification.permission !== "granted") return;
+export async function fireNotification(title: string, body: string, tag?: string): Promise<boolean> {
+  if (!isNotificationCapable() || Notification.permission !== "granted") return false;
   const opts: NotificationOptions = {
     body,
     tag,
@@ -58,14 +58,31 @@ export async function fireNotification(title: string, body: string, tag?: string
     // @ts-expect-error vibrate is not typed on all lib versions
     vibrate: [80, 40, 80],
   };
+  // Try SW path with a hard 1200ms timeout — on hosts where the SW never
+  // registers (e.g. some preview iframes or slow first-load on Vercel), the
+  // `serviceWorker.ready` promise otherwise hangs forever and no toast fires.
+  if ("serviceWorker" in navigator) {
+    try {
+      const reg = await Promise.race<ServiceWorkerRegistration | null>([
+        navigator.serviceWorker.ready,
+        new Promise((res) => setTimeout(() => res(null), 1200)),
+      ]);
+      if (reg) { await reg.showNotification(title, opts); return true; }
+    } catch {}
+  }
+  // Direct Notification fallback (desktop browsers; mobile Chrome will throw).
+  try { new Notification(title, opts); return true; } catch { return false; }
+}
+
+// Best-effort SW registration used by the notification engine on hosts where
+// the PWA plugin is disabled (dev, preview, non-PWA deploys). Idempotent.
+export async function ensureServiceWorker(): Promise<void> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   try {
-    if ("serviceWorker" in navigator) {
-      const reg = await navigator.serviceWorker.ready;
-      await reg.showNotification(title, opts);
-      return;
-    }
+    const existing = await navigator.serviceWorker.getRegistration();
+    if (existing) return;
+    await navigator.serviceWorker.register("/sw.js").catch(() => {});
   } catch {}
-  try { new Notification(title, opts); } catch {}
 }
 
 function nextOccurrenceMs(hour: number, minute: number): number {
