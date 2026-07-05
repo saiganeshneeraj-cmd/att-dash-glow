@@ -14,7 +14,7 @@ import {
 } from "@/lib/rooms.functions";
 import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
-  scheduleDaily, scheduleInterval, isNotificationCapable, type NotifyPrefs,
+  scheduleDaily, scheduleInterval, isNotificationCapable, ensureServiceWorker, type NotifyPrefs,
 } from "@/lib/notifications";
 
 export const Route = createFileRoute("/")({
