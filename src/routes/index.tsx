@@ -653,6 +653,7 @@ function AttendancePage() {
   }, [hydrated, notifyPrefs.enabled, computeTodayInfo, projectProximity]);
 
   const enableNotifications = useCallback(async () => {
+    await ensureServiceWorker();
     const perm = await requestPermission();
     const enabled = perm === "granted";
     const next = { enabled, onboarded: true };
@@ -665,6 +666,17 @@ function AttendancePage() {
     }
   }, []);
 
+  const sendTestNotification = useCallback(async () => {
+    await ensureServiceWorker();
+    const perm = await requestPermission();
+    if (perm !== "granted") return false;
+    const info = computeTodayInfo();
+    const body = info.classesToday > 0
+      ? `${info.classesToday} class${info.classesToday === 1 ? "" : "es"} today · skip all → ${info.projMissAll}% (−${info.drop}%)`
+      : `No classes today. Current attendance ${info.pct}%.`;
+    return fireNotification("📊 Today's attendance impact", body, "attendedge-test");
+  }, [computeTodayInfo]);
+
   const skipOnboard = useCallback(() => {
     saveNotifyPrefs({ onboarded: true, enabled: false });
     setNotifyPrefs((p) => ({ ...p, onboarded: true, enabled: false }));
@@ -673,10 +685,9 @@ function AttendancePage() {
 
   const toggleNotifications = useCallback(async (want: boolean) => {
     if (want) {
-      const perm = await requestPermission();
-      const enabled = perm === "granted";
-      saveNotifyPrefs({ enabled, onboarded: true });
-      setNotifyPrefs((p) => ({ ...p, enabled, onboarded: true }));
+      // Always show the live preview before asking permission so users see
+      // exactly what an alert looks like with their current numbers.
+      setShowOnboard(true);
     } else {
       saveNotifyPrefs({ enabled: false });
       setNotifyPrefs((p) => ({ ...p, enabled: false }));
