@@ -760,7 +760,7 @@ function AttendancePage() {
       <UndoToast toast={toast} onUndo={performUndo} onDismiss={() => setToast(null)} />
       <BadgePopup badge={badgePopup} onDismiss={() => setBadgePopup(null)} />
       {showOnboard && (
-        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} info={computeTodayInfo()} />
+        <NotifyOnboardModal onEnable={enableNotifications} onSkip={skipOnboard} onTest={sendTestNotification} info={computeTodayInfo()} />
       )}
     </main>
   );
