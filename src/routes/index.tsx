@@ -823,6 +823,13 @@ function NotifyOnboardModal({ onEnable, onSkip, onTest, info }: {
               style={{ background: "var(--gradient-primary)", boxShadow: "0 0 24px -4px var(--neon-magenta)" }}>
               Allow notifications
             </button>
+            <button
+              onClick={async () => { const ok = await onTest(); setTestStatus(ok ? "sent" : "blocked"); }}
+              className="w-full rounded-xl border border-primary/40 bg-background/40 px-4 py-2 text-xs font-semibold text-foreground hover:bg-background/70">
+              {testStatus === "sent" ? "✓ Test alert sent — check your notifications"
+                : testStatus === "blocked" ? "Permission blocked — enable it in browser settings"
+                : "Send me a test alert now"}
+            </button>
             <button onClick={onSkip}
               className="w-full rounded-xl border border-border bg-card/40 px-4 py-2 text-xs text-muted-foreground hover:text-foreground">
               Not now
