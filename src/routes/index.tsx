@@ -1131,7 +1131,7 @@ function InsightsPanel({ status, target, safe, total, streak, badge }: {
 
 function InsightCard({ active, color, eyebrow, big, unit, detail }: { active: boolean; color: string; eyebrow: string; big: number; unit: string; detail: string }) {
   return (
-    <div className="glass tilt-3d relative overflow-hidden p-6"
+    <div className="glass tilt-3d sheen relative overflow-hidden p-6"
       style={{
         opacity: active ? 1 : 0.55,
         borderColor: active ? `color-mix(in oklab, ${color} 55%, transparent)` : undefined,
