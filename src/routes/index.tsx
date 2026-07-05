@@ -720,6 +720,12 @@ function AttendancePage() {
           <InsightsPanel status={status} target={target} safe={safe} total={total} streak={activeStreak} badge={badge} />
         </section>
 
+        {hydrated && total > 0 && (
+          <section className="mt-6 animate-fade-in">
+            <WhatIfPlanner attended={attended} total={total} />
+          </section>
+        )}
+
         <section className="mt-6 animate-fade-in">
           {!hydrated ? (
             <ContentSkeleton />
