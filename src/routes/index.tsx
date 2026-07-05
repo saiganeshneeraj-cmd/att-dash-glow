@@ -1147,6 +1147,88 @@ function InsightCard({ active, color, eyebrow, big, unit, detail }: { active: bo
   );
 }
 
+/* ============================================================
+   What-If Planner — interactive skip/attend simulator
+   ============================================================ */
+function WhatIfPlanner({ attended, total }: { attended: number; total: number }) {
+  const [skip, setSkip] = useState(0);
+  const [attend, setAttend] = useState(0);
+  const projTotal = total + skip + attend;
+  const projAttended = attended + attend;
+  const projPct = projTotal > 0 ? Math.round((projAttended / projTotal) * 1000) / 10 : 0;
+  const currentPct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
+  const delta = Math.round((projPct - currentPct) * 10) / 10;
+  const safe = projPct >= 75;
+  const maxSkip = Math.min(40, Math.max(5, Math.round(total * 0.4)));
+  const maxAttend = Math.min(40, Math.max(5, Math.round(total * 0.4)));
+  // How many consecutive attends needed to reach 75% from current
+  const toRecover = attended >= total * 0.75
+    ? 0
+    : Math.max(0, Math.ceil((0.75 * total - attended) / 0.25));
+
+  return (
+    <div className="glass relative overflow-hidden p-5 sm:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">What-If Planner</div>
+          <h3 className="text-lg font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+            Simulate future classes
+          </h3>
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-black" style={{ color: safe ? "var(--color-warning)" : "var(--color-danger)", textShadow: `0 0 18px ${safe ? "var(--color-warning)" : "var(--color-danger)"}` }}>
+            {projPct}%
+          </span>
+          <span className={`text-xs font-semibold ${delta >= 0 ? "text-warning" : "text-destructive"}`}>
+            {delta >= 0 ? `+${delta}` : delta}%
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>🚫 Skip next</span>
+            <span className="font-bold text-destructive">{skip} class{skip === 1 ? "" : "es"}</span>
+          </div>
+          <input type="range" min={0} max={maxSkip} value={skip} onChange={(e) => setSkip(Number(e.target.value))}
+            className="w-full accent-[var(--color-danger)]" aria-label="Classes to skip" />
+        </div>
+        <div>
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>✅ Attend next</span>
+            <span className="font-bold text-warning">{attend} class{attend === 1 ? "" : "es"}</span>
+          </div>
+          <input type="range" min={0} max={maxAttend} value={attend} onChange={(e) => setAttend(Number(e.target.value))}
+            className="w-full accent-[var(--color-warning)]" aria-label="Classes to attend" />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Now</div>
+          <div className="text-lg font-bold text-foreground">{currentPct}%</div>
+          <div className="text-[11px] text-muted-foreground">{attended}/{total}</div>
+        </div>
+        <div className="rounded-xl border p-3" style={{ borderColor: safe ? "color-mix(in oklab, var(--color-warning) 55%, transparent)" : "color-mix(in oklab, var(--color-danger) 55%, transparent)", background: "color-mix(in oklab, var(--card) 60%, transparent)" }}>
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Projected</div>
+          <div className="text-lg font-bold" style={{ color: safe ? "var(--color-warning)" : "var(--color-danger)" }}>{projPct}%</div>
+          <div className="text-[11px] text-muted-foreground">{projAttended}/{projTotal}</div>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-background/40 p-3">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Recovery</div>
+          <div className="text-lg font-bold text-foreground">{toRecover === 0 ? "0" : toRecover}</div>
+          <div className="text-[11px] text-muted-foreground">{toRecover === 0 ? "Already safe" : `attend to hit 75%`}</div>
+        </div>
+      </div>
+
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        Move the sliders to test scenarios — the projection updates live using your current numbers.
+      </p>
+    </div>
+  );
+}
+
 function BadgePopup({ badge, onDismiss }: {
   badge: { icon: string; label: string; streak: number } | null;
   onDismiss: () => void;
