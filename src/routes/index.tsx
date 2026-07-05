@@ -703,7 +703,7 @@ function AttendancePage() {
         <div className="scanline pointer-events-none absolute inset-0" />
       </div>
 
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="route-enter mx-auto w-full max-w-6xl">
         <Header
           mode={mode} setMode={setMode} hydrated={hydrated}
           user={user} syncStatus={syncStatus}
@@ -1065,7 +1065,7 @@ const HeroRing = memo(function HeroRing({ pct, statusText, statusColor, total, a
   const dash = (clamped / 100) * c;
 
   return (
-    <div className="glass-neon tilt-3d animate-pop-in flex flex-col items-center justify-center overflow-hidden p-6 sm:p-8">
+    <div className="glass-neon tilt-3d sheen animate-pop-in flex flex-col items-center justify-center overflow-hidden p-6 sm:p-8">
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90 animate-spin-slow" style={{ filter: `drop-shadow(0 0 14px ${statusColor})` }}>
           <defs>
@@ -1131,7 +1131,7 @@ function InsightsPanel({ status, target, safe, total, streak, badge }: {
 
 function InsightCard({ active, color, eyebrow, big, unit, detail }: { active: boolean; color: string; eyebrow: string; big: number; unit: string; detail: string }) {
   return (
-    <div className="glass tilt-3d relative overflow-hidden p-6"
+    <div className="glass tilt-3d sheen relative overflow-hidden p-6"
       style={{
         opacity: active ? 1 : 0.55,
         borderColor: active ? `color-mix(in oklab, ${color} 55%, transparent)` : undefined,
