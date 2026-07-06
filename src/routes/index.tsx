@@ -57,7 +57,30 @@ type SosRow = { id: string; room_id: string; sender_id: string; sender_name: str
 
 const LS_KEY = "attendedge_v3";
 const LS_CUSTOM_PRESETS = "attendedge_custom_presets_v1";
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Fast local YYYY-MM-DD formatter (avoids toISOString's UTC conversion cost).
+const isoLocal = (d: Date) => {
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  return `${y}-${m < 10 ? "0" + m : m}-${day < 10 ? "0" + day : day}`;
+};
+const todayISO = () => isoLocal(new Date());
+
+// Precompute non-empty timetable slot indices per weekday. Cached by timetable reference.
+const _slotsCache = new WeakMap<Timetable, Record<string, number[]>>();
+function activeSlotsByDay(tt: Timetable): Record<string, number[]> {
+  const hit = _slotsCache.get(tt);
+  if (hit) return hit;
+  const out: Record<string, number[]> = {};
+  for (const dk of Object.keys(tt) as (keyof Timetable)[]) {
+    const row = tt[dk];
+    const idxs: number[] = [];
+    for (let i = 0; i < row.length; i++) if (row[i].trim()) idxs.push(i);
+    out[dk] = idxs;
+  }
+  _slotsCache.set(tt, out);
+  return out;
+}
 
 const DEFAULT_PERIODS = [
   "09:00-09:45","09:45-10:30","10:30-11:15","11:15-12:00",
