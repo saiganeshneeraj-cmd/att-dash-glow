@@ -57,7 +57,30 @@ type SosRow = { id: string; room_id: string; sender_id: string; sender_name: str
 
 const LS_KEY = "attendedge_v3";
 const LS_CUSTOM_PRESETS = "attendedge_custom_presets_v1";
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Fast local YYYY-MM-DD formatter (avoids toISOString's UTC conversion cost).
+const isoLocal = (d: Date) => {
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  return `${y}-${m < 10 ? "0" + m : m}-${day < 10 ? "0" + day : day}`;
+};
+const todayISO = () => isoLocal(new Date());
+
+// Precompute non-empty timetable slot indices per weekday. Cached by timetable reference.
+const _slotsCache = new WeakMap<Timetable, Record<string, number[]>>();
+function activeSlotsByDay(tt: Timetable): Record<string, number[]> {
+  const hit = _slotsCache.get(tt);
+  if (hit) return hit;
+  const out: Record<string, number[]> = {};
+  for (const dk of Object.keys(tt) as (keyof Timetable)[]) {
+    const row = tt[dk];
+    const idxs: number[] = [];
+    for (let i = 0; i < row.length; i++) if (row[i].trim()) idxs.push(i);
+    out[dk] = idxs;
+  }
+  _slotsCache.set(tt, out);
+  return out;
+}
 
 const DEFAULT_PERIODS = [
   "09:00-09:45","09:45-10:30","10:30-11:15","11:15-12:00",
@@ -157,20 +180,24 @@ function computeDetailedTotals(detailed: DetailedData, untilISO = todayISO()) {
   const start = new Date(detailed.startDate + "T00:00:00");
   const end = new Date(untilISO + "T00:00:00");
   if (isNaN(start.getTime()) || end < start) return { total: 0, attended: 0, missed: 0, cancelled: 0 };
+  const slots = activeSlotsByDay(detailed.timetable);
+  const states = detailed.states;
   let total = 0, attended = 0, missed = 0, cancelled = 0;
   const cur = new Date(start);
   while (cur <= end) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    if (dayKey && !holidays.has(iso)) {
-      detailed.timetable[dayKey].forEach((subj, idx) => {
-        if (!subj.trim()) return;
-        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
-        if (st === "cancelled") { cancelled += 1; return; }
-        total += 1;
-        if (st === "attended") attended += 1;
-        else missed += 1;
-      });
+    if (dayKey) {
+      const iso = isoLocal(cur);
+      if (!holidays.has(iso)) {
+        const idxs = slots[dayKey];
+        for (let i = 0; i < idxs.length; i++) {
+          const st = states[`${iso}__${idxs[i]}`] ?? "attended";
+          if (st === "cancelled") { cancelled += 1; continue; }
+          total += 1;
+          if (st === "attended") attended += 1;
+          else missed += 1;
+        }
+      }
     }
     cur.setDate(cur.getDate() + 1);
   }
@@ -194,19 +221,25 @@ function computeStreak(detailed: DetailedData) {
   const cur = new Date(todayISO() + "T00:00:00");
   if (isNaN(start.getTime()) || cur < start) return 0;
   const holidays = new Set(detailed.holidays);
+  const slots = activeSlotsByDay(detailed.timetable);
+  const states = detailed.states;
   let streak = 0;
   while (cur >= start) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    if (dayKey && !holidays.has(iso)) {
-      const classes = detailed.timetable[dayKey]
-        .map((subj, idx) => ({ subj: subj.trim(), idx }))
-        .filter((c) => c.subj);
-      if (classes.length > 0) {
-        const hasMiss = classes.some((c) => detailed.states[`${iso}__${c.idx}`] === "missed");
-        const activeCount = classes.filter((c) => detailed.states[`${iso}__${c.idx}`] !== "cancelled").length;
-        if (hasMiss) break;
-        if (activeCount > 0) streak += 1;
+    if (dayKey) {
+      const iso = isoLocal(cur);
+      if (!holidays.has(iso)) {
+        const idxs = slots[dayKey];
+        if (idxs.length > 0) {
+          let hasMiss = false, activeCount = 0;
+          for (let i = 0; i < idxs.length; i++) {
+            const st = states[`${iso}__${idxs[i]}`];
+            if (st === "missed") { hasMiss = true; break; }
+            if (st !== "cancelled") activeCount += 1;
+          }
+          if (hasMiss) break;
+          if (activeCount > 0) streak += 1;
+        }
       }
     }
     cur.setDate(cur.getDate() - 1);
@@ -227,15 +260,15 @@ function buildRoadmap(detailed: DetailedData, attended: number, total: number) {
   const milestones = [70, 72, 75];
   const hit = new Set<number>();
   const out: { iso: string; label: string; pct: number }[] = [];
+  const holidays = new Set(detailed.holidays);
+  const slots = activeSlotsByDay(detailed.timetable);
   let a = attended, t = total;
   const cur = new Date(todayISO() + "T00:00:00");
   cur.setDate(cur.getDate() + 1);
   for (let guard = 0; guard < 90 && out.length < 5; guard++) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    const classes = dayKey && !detailed.holidays.includes(iso)
-      ? detailed.timetable[dayKey].filter((s) => s.trim()).length
-      : 0;
+    const iso = isoLocal(cur);
+    const classes = dayKey && !holidays.has(iso) ? slots[dayKey].length : 0;
     if (classes > 0) {
       a += classes; t += classes;
       const p = pctFor(a, t);
@@ -259,22 +292,27 @@ function computeWrapped(detailed: DetailedData) {
   const skippedByDay: Record<string, number> = {};
   let total = 0, attended = 0, closest = 100, closestLabel = "No close calls yet";
   if (isNaN(start.getTime()) || end < start) return { mostSkipped: "—", closestCall: closestLabel, hours: 0 };
+  const holidays = new Set(detailed.holidays);
+  const slots = activeSlotsByDay(detailed.timetable);
+  const states = detailed.states;
   const cur = new Date(start);
   while (cur <= end) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    if (dayKey && !detailed.holidays.includes(iso)) {
-      detailed.timetable[dayKey].forEach((subj, idx) => {
-        if (!subj.trim()) return;
-        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
-        if (st === "cancelled") return;
-        total += 1;
-        if (st === "attended") attended += 1;
-        if (st === "missed") skippedByDay[WEEKDAYS[cur.getDay()]] = (skippedByDay[WEEKDAYS[cur.getDay()]] ?? 0) + 1;
-        const p = pctFor(attended, total);
-        const diff = Math.abs(p - 75);
-        if (total >= 4 && diff < closest) { closest = diff; closestLabel = `${p}% on ${formatShortDate(cur)}`; }
-      });
+    if (dayKey) {
+      const iso = isoLocal(cur);
+      if (!holidays.has(iso)) {
+        const idxs = slots[dayKey];
+        for (let i = 0; i < idxs.length; i++) {
+          const st = states[`${iso}__${idxs[i]}`] ?? "attended";
+          if (st === "cancelled") continue;
+          total += 1;
+          if (st === "attended") attended += 1;
+          if (st === "missed") skippedByDay[WEEKDAYS[cur.getDay()]] = (skippedByDay[WEEKDAYS[cur.getDay()]] ?? 0) + 1;
+          const p = pctFor(attended, total);
+          const diff = Math.abs(p - 75);
+          if (total >= 4 && diff < closest) { closest = diff; closestLabel = `${p}% on ${formatShortDate(cur)}`; }
+        }
+      }
     }
     cur.setDate(cur.getDate() + 1);
   }
@@ -481,28 +519,8 @@ function AttendancePage() {
       const a = Math.min(t, Math.max(0, Math.floor(quick.attended || 0)));
       return { total: t, attended: a };
     }
-    const holidays = new Set(detailed.holidays);
-    const start = new Date(detailed.startDate + "T00:00:00");
-    const end = new Date(todayISO() + "T00:00:00");
-    if (isNaN(start.getTime()) || end < start) return { total: 0, attended: 0 };
-    let t = 0, a = 0;
-    const cur = new Date(start);
-    while (cur <= end) {
-      const iso = cur.toISOString().slice(0, 10);
-      const dayKey = DOW_TO_DAY[cur.getDay()];
-      if (dayKey && !holidays.has(iso)) {
-        const row = detailed.timetable[dayKey];
-        row.forEach((subj, idx) => {
-          if (!subj.trim()) return;
-          const st = detailed.states[`${iso}__${idx}`] ?? "attended";
-          if (st === "cancelled") return;
-          t += 1;
-          if (st === "attended") a += 1;
-        });
-      }
-      cur.setDate(cur.getDate() + 1);
-    }
-    return { total: t, attended: a };
+    const r = computeDetailedTotals(detailed);
+    return { total: r.total, attended: r.attended };
   }, [mode, quick, detailed]);
 
   const pct = pctFor(attended, total);
