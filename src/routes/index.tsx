@@ -669,7 +669,7 @@ function AttendancePage() {
     cancels.push(scheduleInterval(60 * 60 * 1000, checkProx));
 
     return () => { cancels.forEach((c) => c()); };
-  }, [hydrated, notifyPrefs.enabled, computeTodayInfo, projectProximity]);
+  }, [hydrated, notifyPrefs.enabled, computeScenario, projectProximity]);
 
   const enableNotifications = useCallback(async () => {
     await ensureServiceWorker();
@@ -689,12 +689,12 @@ function AttendancePage() {
     await ensureServiceWorker();
     const perm = await requestPermission();
     if (perm !== "granted") return false;
-    const info = computeTodayInfo();
-    const body = info.classesToday > 0
-      ? `${info.classesToday} class${info.classesToday === 1 ? "" : "es"} today · skip all → ${info.projMissAll}% (−${info.drop}%)`
-      : `No classes today. Current attendance ${info.pct}%.`;
+    const sc = computeScenario();
+    const body = sc.classesToday > 0
+      ? `Attendance: ${sc.yPct}%. Today: ${sc.ifPresent}% if you attend, or ${sc.ifAbsent}% if you skip.`
+      : `Attendance: ${sc.yPct}%. No classes scheduled today.`;
     return fireNotification("📊 Today's attendance impact", body, "attendedge-test");
-  }, [computeTodayInfo]);
+  }, [computeScenario]);
 
   const skipOnboard = useCallback(() => {
     saveNotifyPrefs({ onboarded: true, enabled: false });
