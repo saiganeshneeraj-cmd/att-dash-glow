@@ -221,19 +221,25 @@ function computeStreak(detailed: DetailedData) {
   const cur = new Date(todayISO() + "T00:00:00");
   if (isNaN(start.getTime()) || cur < start) return 0;
   const holidays = new Set(detailed.holidays);
+  const slots = activeSlotsByDay(detailed.timetable);
+  const states = detailed.states;
   let streak = 0;
   while (cur >= start) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    if (dayKey && !holidays.has(iso)) {
-      const classes = detailed.timetable[dayKey]
-        .map((subj, idx) => ({ subj: subj.trim(), idx }))
-        .filter((c) => c.subj);
-      if (classes.length > 0) {
-        const hasMiss = classes.some((c) => detailed.states[`${iso}__${c.idx}`] === "missed");
-        const activeCount = classes.filter((c) => detailed.states[`${iso}__${c.idx}`] !== "cancelled").length;
-        if (hasMiss) break;
-        if (activeCount > 0) streak += 1;
+    if (dayKey) {
+      const iso = isoLocal(cur);
+      if (!holidays.has(iso)) {
+        const idxs = slots[dayKey];
+        if (idxs.length > 0) {
+          let hasMiss = false, activeCount = 0;
+          for (let i = 0; i < idxs.length; i++) {
+            const st = states[`${iso}__${idxs[i]}`];
+            if (st === "missed") { hasMiss = true; break; }
+            if (st !== "cancelled") activeCount += 1;
+          }
+          if (hasMiss) break;
+          if (activeCount > 0) streak += 1;
+        }
       }
     }
     cur.setDate(cur.getDate() - 1);
@@ -254,15 +260,15 @@ function buildRoadmap(detailed: DetailedData, attended: number, total: number) {
   const milestones = [70, 72, 75];
   const hit = new Set<number>();
   const out: { iso: string; label: string; pct: number }[] = [];
+  const holidays = new Set(detailed.holidays);
+  const slots = activeSlotsByDay(detailed.timetable);
   let a = attended, t = total;
   const cur = new Date(todayISO() + "T00:00:00");
   cur.setDate(cur.getDate() + 1);
   for (let guard = 0; guard < 90 && out.length < 5; guard++) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    const classes = dayKey && !detailed.holidays.includes(iso)
-      ? detailed.timetable[dayKey].filter((s) => s.trim()).length
-      : 0;
+    const iso = isoLocal(cur);
+    const classes = dayKey && !holidays.has(iso) ? slots[dayKey].length : 0;
     if (classes > 0) {
       a += classes; t += classes;
       const p = pctFor(a, t);
@@ -286,22 +292,27 @@ function computeWrapped(detailed: DetailedData) {
   const skippedByDay: Record<string, number> = {};
   let total = 0, attended = 0, closest = 100, closestLabel = "No close calls yet";
   if (isNaN(start.getTime()) || end < start) return { mostSkipped: "—", closestCall: closestLabel, hours: 0 };
+  const holidays = new Set(detailed.holidays);
+  const slots = activeSlotsByDay(detailed.timetable);
+  const states = detailed.states;
   const cur = new Date(start);
   while (cur <= end) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    if (dayKey && !detailed.holidays.includes(iso)) {
-      detailed.timetable[dayKey].forEach((subj, idx) => {
-        if (!subj.trim()) return;
-        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
-        if (st === "cancelled") return;
-        total += 1;
-        if (st === "attended") attended += 1;
-        if (st === "missed") skippedByDay[WEEKDAYS[cur.getDay()]] = (skippedByDay[WEEKDAYS[cur.getDay()]] ?? 0) + 1;
-        const p = pctFor(attended, total);
-        const diff = Math.abs(p - 75);
-        if (total >= 4 && diff < closest) { closest = diff; closestLabel = `${p}% on ${formatShortDate(cur)}`; }
-      });
+    if (dayKey) {
+      const iso = isoLocal(cur);
+      if (!holidays.has(iso)) {
+        const idxs = slots[dayKey];
+        for (let i = 0; i < idxs.length; i++) {
+          const st = states[`${iso}__${idxs[i]}`] ?? "attended";
+          if (st === "cancelled") continue;
+          total += 1;
+          if (st === "attended") attended += 1;
+          if (st === "missed") skippedByDay[WEEKDAYS[cur.getDay()]] = (skippedByDay[WEEKDAYS[cur.getDay()]] ?? 0) + 1;
+          const p = pctFor(attended, total);
+          const diff = Math.abs(p - 75);
+          if (total >= 4 && diff < closest) { closest = diff; closestLabel = `${p}% on ${formatShortDate(cur)}`; }
+        }
+      }
     }
     cur.setDate(cur.getDate() + 1);
   }
