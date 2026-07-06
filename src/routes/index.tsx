@@ -601,6 +601,31 @@ function AttendancePage() {
     return projPct < 75;
   }, [attended, total]);
 
+  // Compute yesterday-based scenario (excludes today's states)
+  const computeScenario = useCallback(() => {
+    const s = stateRef.current;
+    const d = s.detailed;
+    const now = new Date();
+    const yest = new Date(now); yest.setDate(now.getDate() - 1);
+    const yISO = yest.toISOString().slice(0, 10);
+    const yTotals = computeDetailedTotals(d, yISO);
+    const dk = DOW_TO_DAY[now.getDay()];
+    const iso = todayISO();
+    let classesToday = 0;
+    let loggedToday = false;
+    if (dk && !d.holidays.includes(iso)) {
+      d.timetable[dk].forEach((subj, idx) => {
+        if (!subj.trim()) return;
+        classesToday += 1;
+        if (d.states[`${iso}__${idx}`]) loggedToday = true;
+      });
+    }
+    const yPct = pctFor(yTotals.attended, yTotals.total);
+    const ifPresent = pctFor(yTotals.attended + classesToday, yTotals.total + classesToday);
+    const ifAbsent  = pctFor(yTotals.attended, yTotals.total + classesToday);
+    return { yPct, ifPresent, ifAbsent, classesToday, loggedToday };
+  }, []);
+
   // Schedule alerts when enabled
   useEffect(() => {
     if (!hydrated || !notifyPrefs.enabled) return;
@@ -608,28 +633,22 @@ function AttendancePage() {
 
     const cancels: Array<() => void> = [];
     const fireImpact = (tag: string, prefix: string) => {
-      const info = computeTodayInfo();
-      if (info.classesToday > 0) {
-        const impact = info.drop > 0
-          ? `Skip all ${info.classesToday} → attendance drops ${info.pct}% → ${info.projMissAll}% (−${info.drop}%).`
-          : `Marking today keeps you at ${info.pct}%.`;
-        fireNotification(prefix,
-          `${info.classesToday} class${info.classesToday === 1 ? "" : "es"} today. ${impact}`,
-          tag);
-      } else {
-        fireNotification(prefix, `No scheduled classes today. Attendance ${info.pct}%.`, tag);
-      }
+      const sc = computeScenario();
+      const body = sc.classesToday > 0
+        ? `Attendance: ${sc.yPct}%. Today: ${sc.ifPresent}% if you attend, or ${sc.ifAbsent}% if you skip.`
+        : `Attendance: ${sc.yPct}%. No classes scheduled today.`;
+      fireNotification(prefix, body, tag);
     };
     cancels.push(scheduleDaily(8, 0, () => fireImpact("attendedge-morning", "Good morning ☀️")));
-    // Also fire once ~5s after enabling so the user sees today's impact immediately
+    // Also fire once ~5s after enabling so the user sees the format immediately
     const initial = window.setTimeout(() => fireImpact("attendedge-impact-now", "Today's attendance impact 📊"), 4000);
     cancels.push(() => window.clearTimeout(initial));
 
     cancels.push(scheduleDaily(18, 0, () => {
-      const info = computeTodayInfo();
-      if (info.classesToday > 0 && !info.loggedToday) {
+      const sc = computeScenario();
+      if (sc.classesToday > 0 && !sc.loggedToday) {
         fireNotification("Time to log today's attendance 📝",
-          "Tap here to mark today's classes as attended, missed, or cancelled.",
+          `Attendance: ${sc.yPct}%. Today: ${sc.ifPresent}% if you attend, or ${sc.ifAbsent}% if you skip.`,
           "attendedge-evening");
       }
     }));
@@ -650,7 +669,7 @@ function AttendancePage() {
     cancels.push(scheduleInterval(60 * 60 * 1000, checkProx));
 
     return () => { cancels.forEach((c) => c()); };
-  }, [hydrated, notifyPrefs.enabled, computeTodayInfo, projectProximity]);
+  }, [hydrated, notifyPrefs.enabled, computeScenario, projectProximity]);
 
   const enableNotifications = useCallback(async () => {
     await ensureServiceWorker();
@@ -670,12 +689,12 @@ function AttendancePage() {
     await ensureServiceWorker();
     const perm = await requestPermission();
     if (perm !== "granted") return false;
-    const info = computeTodayInfo();
-    const body = info.classesToday > 0
-      ? `${info.classesToday} class${info.classesToday === 1 ? "" : "es"} today · skip all → ${info.projMissAll}% (−${info.drop}%)`
-      : `No classes today. Current attendance ${info.pct}%.`;
+    const sc = computeScenario();
+    const body = sc.classesToday > 0
+      ? `Attendance: ${sc.yPct}%. Today: ${sc.ifPresent}% if you attend, or ${sc.ifAbsent}% if you skip.`
+      : `Attendance: ${sc.yPct}%. No classes scheduled today.`;
     return fireNotification("📊 Today's attendance impact", body, "attendedge-test");
-  }, [computeTodayInfo]);
+  }, [computeScenario]);
 
   const skipOnboard = useCallback(() => {
     saveNotifyPrefs({ onboarded: true, enabled: false });
