@@ -180,20 +180,24 @@ function computeDetailedTotals(detailed: DetailedData, untilISO = todayISO()) {
   const start = new Date(detailed.startDate + "T00:00:00");
   const end = new Date(untilISO + "T00:00:00");
   if (isNaN(start.getTime()) || end < start) return { total: 0, attended: 0, missed: 0, cancelled: 0 };
+  const slots = activeSlotsByDay(detailed.timetable);
+  const states = detailed.states;
   let total = 0, attended = 0, missed = 0, cancelled = 0;
   const cur = new Date(start);
   while (cur <= end) {
-    const iso = cur.toISOString().slice(0, 10);
     const dayKey = DOW_TO_DAY[cur.getDay()];
-    if (dayKey && !holidays.has(iso)) {
-      detailed.timetable[dayKey].forEach((subj, idx) => {
-        if (!subj.trim()) return;
-        const st = detailed.states[`${iso}__${idx}`] ?? "attended";
-        if (st === "cancelled") { cancelled += 1; return; }
-        total += 1;
-        if (st === "attended") attended += 1;
-        else missed += 1;
-      });
+    if (dayKey) {
+      const iso = isoLocal(cur);
+      if (!holidays.has(iso)) {
+        const idxs = slots[dayKey];
+        for (let i = 0; i < idxs.length; i++) {
+          const st = states[`${iso}__${idxs[i]}`] ?? "attended";
+          if (st === "cancelled") { cancelled += 1; continue; }
+          total += 1;
+          if (st === "attended") attended += 1;
+          else missed += 1;
+        }
+      }
     }
     cur.setDate(cur.getDate() + 1);
   }
