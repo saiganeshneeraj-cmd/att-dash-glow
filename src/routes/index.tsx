@@ -519,28 +519,8 @@ function AttendancePage() {
       const a = Math.min(t, Math.max(0, Math.floor(quick.attended || 0)));
       return { total: t, attended: a };
     }
-    const holidays = new Set(detailed.holidays);
-    const start = new Date(detailed.startDate + "T00:00:00");
-    const end = new Date(todayISO() + "T00:00:00");
-    if (isNaN(start.getTime()) || end < start) return { total: 0, attended: 0 };
-    let t = 0, a = 0;
-    const cur = new Date(start);
-    while (cur <= end) {
-      const iso = cur.toISOString().slice(0, 10);
-      const dayKey = DOW_TO_DAY[cur.getDay()];
-      if (dayKey && !holidays.has(iso)) {
-        const row = detailed.timetable[dayKey];
-        row.forEach((subj, idx) => {
-          if (!subj.trim()) return;
-          const st = detailed.states[`${iso}__${idx}`] ?? "attended";
-          if (st === "cancelled") return;
-          t += 1;
-          if (st === "attended") a += 1;
-        });
-      }
-      cur.setDate(cur.getDate() + 1);
-    }
-    return { total: t, attended: a };
+    const r = computeDetailedTotals(detailed);
+    return { total: r.total, attended: r.attended };
   }, [mode, quick, detailed]);
 
   const pct = pctFor(attended, total);
