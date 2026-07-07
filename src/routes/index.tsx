@@ -971,7 +971,7 @@ function Header({
   };
 
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4">
+    <header className="relative z-[90] flex flex-wrap items-center justify-between gap-4">
       <div className="min-w-0">
         <h1 className="truncate text-3xl font-bold sm:text-4xl">
           <span className="text-gradient">AttendEdge</span>
