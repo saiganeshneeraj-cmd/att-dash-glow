@@ -125,14 +125,14 @@
   position: relative;
   background:
     linear-gradient(135deg,
-      color-mix(in oklab, white 6%, transparent) 0%,
+      color-mix(in oklab, white 3%, transparent) 0%,
       transparent 40%),
     color-mix(in oklab, var(--color-card) 70%, transparent);
   backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid color-mix(in oklab, white 10%, var(--color-border));
+  border: 1px solid color-mix(in oklab, white 6%, var(--color-border));
   box-shadow:
     var(--shadow-glass),
-    inset 0 1px 0 0 color-mix(in oklab, white 14%, transparent),
+    inset 0 1px 0 0 color-mix(in oklab, white 8%, transparent),
     inset 0 -1px 0 0 color-mix(in oklab, black 20%, transparent);
   border-radius: var(--radius-2xl);
   transition:
@@ -145,7 +145,7 @@
   border-color: color-mix(in oklab, var(--neon-cyan) 40%, var(--color-border));
   box-shadow:
     var(--shadow-glass),
-    inset 0 1px 0 0 color-mix(in oklab, white 20%, transparent),
+    inset 0 1px 0 0 color-mix(in oklab, white 12%, transparent),
     0 24px 60px -24px color-mix(in oklab, var(--neon-cyan) 45%, transparent),
     0 0 0 1px color-mix(in oklab, var(--neon-cyan) 20%, transparent);
 }
