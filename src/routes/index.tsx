@@ -2066,7 +2066,9 @@ function LogPanel({
         {dates.map(({ iso, day, label }) => {
           const isToday = iso === todayIsoStr;
           const isHoliday = holidaySet.has(iso);
-          const dateNum = label.split(", ")[1]?.split(" ").slice(-1)[0] ?? "";
+          const parts = label.split(", ")[1]?.split(" ") ?? [];
+          const monthAbbr = parts[0] ?? "";
+          const dateNum = parts[1] ?? "";
           return (
             <button
               key={iso}
@@ -2078,7 +2080,7 @@ function LogPanel({
               }`}
               style={{
                 scrollSnapAlign: "start",
-                minWidth: 62,
+                minWidth: 64,
                 background: isToday ? "var(--gradient-primary)" : undefined,
                 boxShadow: isToday ? "0 0 20px -6px var(--neon-cyan)" : undefined,
               }}
@@ -2086,6 +2088,7 @@ function LogPanel({
             >
               <span className={`text-[9px] font-bold uppercase tracking-widest ${isToday ? "opacity-90" : "text-muted-foreground"}`}>{day}</span>
               <span className="text-lg font-black leading-none" style={{ fontFamily: "var(--font-display)" }}>{dateNum}</span>
+              <span className={`mt-0.5 text-[9px] font-semibold uppercase tracking-wider ${isToday ? "opacity-90" : "text-muted-foreground"}`}>{monthAbbr}</span>
               {isHoliday && <span className="mt-0.5 text-[8px] opacity-80">Holiday</span>}
             </button>
           );
