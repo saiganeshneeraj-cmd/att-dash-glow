@@ -12,6 +12,8 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { registerPwa } from "../lib/pwa";
+import { installErrorMonitor } from "../lib/error-monitor";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
