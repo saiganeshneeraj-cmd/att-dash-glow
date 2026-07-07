@@ -735,9 +735,9 @@ function AttendancePage() {
   return (
     <main className="relative min-h-screen w-full overflow-x-hidden px-3 py-5 sm:px-6 sm:py-10">
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="animate-float absolute -left-32 top-10 h-96 w-96 rounded-full opacity-40 blur-3xl" style={{ background: "var(--neon-cyan)" }} />
-        <div className="animate-float absolute -right-40 top-1/3 h-[28rem] w-[28rem] rounded-full opacity-30 blur-3xl" style={{ background: "var(--neon-magenta)", animationDelay: "-4s" }} />
-        <div className="animate-float absolute bottom-0 left-1/3 h-96 w-96 rounded-full opacity-25 blur-3xl" style={{ background: "var(--neon-lime)", animationDelay: "-8s" }} />
+        <div className="animate-float absolute -left-32 top-10 h-96 w-96 rounded-full opacity-20 blur-3xl" style={{ background: "var(--neon-cyan)" }} />
+        <div className="animate-float absolute -right-40 top-1/3 h-[28rem] w-[28rem] rounded-full opacity-15 blur-3xl" style={{ background: "var(--neon-magenta)", animationDelay: "-4s" }} />
+        <div className="animate-float absolute bottom-0 left-1/3 h-96 w-96 rounded-full opacity-12 blur-3xl" style={{ background: "var(--neon-lime)", animationDelay: "-8s" }} />
         <div className="scanline pointer-events-none absolute inset-0" />
       </div>
 
