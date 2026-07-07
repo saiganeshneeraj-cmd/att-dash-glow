@@ -26,5 +26,14 @@ export function useAuth() {
 }
 
 export async function signOut() {
-  await supabase.auth.signOut();
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // ignore — still force a redirect so the UI doesn't appear stuck
+  }
+  if (typeof window !== "undefined") {
+    // Hard replace so protected/cached state is fully torn down and
+    // the back button can't restore the signed-in view.
+    window.location.replace("/auth");
+  }
 }
