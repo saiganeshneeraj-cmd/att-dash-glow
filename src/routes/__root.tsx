@@ -134,7 +134,7 @@ function RootComponent() {
           color2="#002cff"
           noiseFrequency={5}
           noiseAmplitude={1.0}
-          bandHeight={0.55}
+          bandHeight={0.5}
           bandSpread={1.4}
           octaveDecay={0.1}
           layerOffset={0}
