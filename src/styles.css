@@ -154,14 +154,14 @@
   position: relative;
   background:
     linear-gradient(135deg,
-      color-mix(in oklab, var(--neon-cyan) 8%, transparent) 0%,
+      color-mix(in oklab, var(--neon-cyan) 6%, transparent) 0%,
       transparent 45%),
     color-mix(in oklab, var(--color-card) 70%, transparent);
   backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid color-mix(in oklab, var(--neon-cyan) 40%, transparent);
   box-shadow:
     var(--shadow-glass),
-    inset 0 1px 0 0 color-mix(in oklab, white 18%, transparent),
+    inset 0 1px 0 0 color-mix(in oklab, white 12%, transparent),
     0 0 50px -14px color-mix(in oklab, var(--neon-cyan) 60%, transparent),
     0 0 100px -30px color-mix(in oklab, var(--neon-magenta) 40%, transparent);
   border-radius: var(--radius-2xl);
@@ -173,7 +173,7 @@
 .glass-neon:hover {
   box-shadow:
     var(--shadow-glass),
-    inset 0 1px 0 0 color-mix(in oklab, white 25%, transparent),
+    inset 0 1px 0 0 color-mix(in oklab, white 16%, transparent),
     0 0 70px -10px color-mix(in oklab, var(--neon-cyan) 75%, transparent),
     0 0 140px -20px color-mix(in oklab, var(--neon-magenta) 55%, transparent);
 }
