@@ -6,6 +6,7 @@ import { useAuth, signOut } from "@/hooks/use-auth";
 import { PRESETS, type PresetTimetable } from "@/lib/presets";
 import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText } from "@/lib/report";
 import { loadCached, saveCached } from "@/lib/local-store";
+import { usePerfTracker, usePerfOverlay } from "@/lib/perf";
 import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import {
@@ -1987,20 +1988,27 @@ function LogPanel({
     return arr.reverse();
   }, [detailed.startDate, detailed.timetable]);
 
+  // Perf: measure tap-to-render latency for attendance inputs. `mark(label)`
+  // called from a handler is completed after the next paint (see src/lib/perf.ts).
+  const perf = usePerfTracker([detailed]);
+
   const setClassState = useCallback((iso: string, idx: number, st: "attended" | "missed" | "cancelled") => {
+    perf.mark(`class:${st}`);
     captureUndo(st === "cancelled" ? "Class cancelled" : st === "attended" ? "Marked attended" : "Marked absent");
     setDetailed((d) => ({ ...d, states: { ...d.states, [`${iso}__${idx}`]: st } }));
-  }, [setDetailed, captureUndo]);
+  }, [setDetailed, captureUndo, perf]);
 
   const toggleHoliday = useCallback((iso: string) => {
+    perf.mark("holiday:toggle");
     captureUndo("Holiday toggled");
     setDetailed((d) => {
       const has = d.holidays.includes(iso);
       return { ...d, holidays: has ? d.holidays.filter((x) => x !== iso) : [...d.holidays, iso] };
     });
-  }, [setDetailed, captureUndo]);
+  }, [setDetailed, captureUndo, perf]);
 
   const markDay = useCallback((iso: string, day: DayKey, st: "attended" | "missed") => {
+    perf.mark(`day:${st}`);
     captureUndo(st === "attended" ? "Whole day marked present" : "Whole day marked absent");
     setDetailed((d) => {
       const row = d.timetable[day];
@@ -2011,7 +2019,7 @@ function LogPanel({
       });
       return { ...d, states: next };
     });
-  }, [setDetailed]);
+  }, [setDetailed, perf]);
 
   // Refs to each day card for the carousel jump-to
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});

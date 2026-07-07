@@ -12,6 +12,9 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { registerPwa } from "../lib/pwa";
+import { installErrorMonitor } from "../lib/error-monitor";
+import { Toaster } from "@/components/ui/sonner";
+import { PerfOverlay } from "@/components/PerfOverlay";
 
 function NotFoundComponent() {
   return (
@@ -114,10 +117,15 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  useEffect(() => { registerPwa(); }, []);
+  useEffect(() => {
+    registerPwa();
+    installErrorMonitor();
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />
+      <Toaster position="top-center" richColors closeButton />
+      <PerfOverlay />
     </QueryClientProvider>
   );
 }

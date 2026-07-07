@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
@@ -25,15 +26,21 @@ export function useAuth() {
   return { session, user, loading };
 }
 
+let signingOut = false;
+
 export async function signOut() {
+  if (signingOut) return;
+  signingOut = true;
+  const t = toast.loading("Signing out…");
   try {
     await supabase.auth.signOut();
-  } catch {
-    // ignore — still force a redirect so the UI doesn't appear stuck
+    toast.success("Signed out", { id: t });
+  } catch (err) {
+    toast.error("Sign out failed — clearing session anyway", { id: t });
+    console.error("[auth] signOut error", err);
   }
-  if (typeof window !== "undefined") {
-    // Hard replace so protected/cached state is fully torn down and
-    // the back button can't restore the signed-in view.
-    window.location.replace("/auth");
-  }
+  // Give the toast a beat to render before the hard nav tears the DOM down.
+  setTimeout(() => {
+    if (typeof window !== "undefined") window.location.replace("/auth");
+  }, 250);
 }
