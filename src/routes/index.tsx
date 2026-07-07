@@ -17,6 +17,8 @@ import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
   scheduleDaily, scheduleInterval, isNotificationCapable, ensureServiceWorker, type NotifyPrefs,
 } from "@/lib/notifications";
+// @ts-expect-error - JSX component without types
+import SoftAurora from "@/components/SoftAurora.jsx";
 
 export const Route = createFileRoute("/")({
   component: AttendancePage,
@@ -752,7 +754,27 @@ function AttendancePage() {
 
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <HeroRing pct={pct} statusText={statusText} statusColor={statusColor} total={total} attended={attended} />
+          <div className="relative overflow-hidden rounded-[var(--radius-2xl)]">
+            <div className="absolute inset-0">
+              <SoftAurora
+                speed={0.7}
+                scale={1.1}
+                brightness={1.0}
+                color1="#010091"
+                color2="#002cff"
+                noiseFrequency={5}
+                noiseAmplitude={1.0}
+                bandHeight={0.5}
+                bandSpread={1.4}
+                octaveDecay={0.1}
+                layerOffset={0}
+                colorSpeed={1.0}
+                enableMouseInteraction={true}
+                mouseInfluence={0.4}
+              />
+            </div>
+            <HeroRing pct={pct} statusText={statusText} statusColor={statusColor} total={total} attended={attended} />
+          </div>
           <InsightsPanel status={status} target={target} safe={safe} total={total} streak={activeStreak} badge={badge} />
         </section>
 
