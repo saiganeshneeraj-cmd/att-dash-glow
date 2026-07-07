@@ -15,8 +15,6 @@ import { registerPwa } from "../lib/pwa";
 import { installErrorMonitor } from "../lib/error-monitor";
 import { Toaster } from "@/components/ui/sonner";
 import { PerfOverlay } from "@/components/PerfOverlay";
-// @ts-expect-error - JSX component without types
-import SoftAurora from "@/components/SoftAurora.jsx";
 
 function NotFoundComponent() {
   return (
@@ -125,24 +123,6 @@ function RootComponent() {
   }, []);
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="aurora-bg-fixed">
-        <SoftAurora
-          speed={0.7}
-          scale={1.1}
-          brightness={1.0}
-          color1="#010091"
-          color2="#002cff"
-          noiseFrequency={5}
-          noiseAmplitude={1.0}
-          bandHeight={0.5}
-          bandSpread={1.4}
-          octaveDecay={0.1}
-          layerOffset={0}
-          colorSpeed={1.0}
-          enableMouseInteraction={true}
-          mouseInfluence={0.4}
-        />
-      </div>
       <Outlet />
       <Toaster position="top-center" richColors closeButton />
       <PerfOverlay />
