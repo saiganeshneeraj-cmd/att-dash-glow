@@ -764,7 +764,7 @@ function AttendancePage() {
                 color2="#002cff"
                 noiseFrequency={5}
                 noiseAmplitude={1.0}
-                bandHeight={0.5}
+                bandHeight={0.7}
                 bandSpread={1.4}
                 octaveDecay={0.1}
                 layerOffset={0}
