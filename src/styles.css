@@ -45,9 +45,9 @@
 
 :root {
   --radius: 0.875rem;
-  --background: oklch(0.14 0.03 275);
-  --foreground: oklch(0.98 0.005 250);
-  --card: oklch(0.22 0.03 275 / 55%);
+  --background: oklch(0.09 0.02 275);
+  --foreground: oklch(0.94 0.005 250);
+  --card: oklch(0.16 0.03 275 / 40%);
   --card-foreground: oklch(0.98 0.005 250);
   --popover: oklch(0.22 0.03 275);
   --popover-foreground: oklch(0.98 0.005 250);
@@ -55,8 +55,8 @@
   --primary-foreground: oklch(0.12 0.03 275);
   --secondary: oklch(0.28 0.03 275);
   --secondary-foreground: oklch(0.98 0.005 250);
-  --muted: oklch(0.24 0.025 275);
-  --muted-foreground: oklch(0.72 0.03 260);
+  --muted: oklch(0.22 0.025 275);
+  --muted-foreground: oklch(0.62 0.03 260);
   --accent: oklch(0.3 0.05 285);
   --accent-foreground: oklch(0.98 0.005 250);
   --destructive: oklch(0.68 0.14 30);
@@ -77,9 +77,9 @@
   --neon-lime: oklch(0.88 0.22 140);
 
   --gradient-bg:
-    radial-gradient(1200px 700px at 8% -10%, oklch(0.4 0.22 200 / 35%), transparent 60%),
-    radial-gradient(1000px 600px at 110% 0%, oklch(0.4 0.28 330 / 30%), transparent 60%),
-    radial-gradient(900px 600px at 50% 120%, oklch(0.4 0.22 280 / 28%), transparent 60%);
+    radial-gradient(1200px 700px at 8% -10%, oklch(0.4 0.22 200 / 16%), transparent 60%),
+    radial-gradient(1000px 600px at 110% 0%, oklch(0.4 0.28 330 / 14%), transparent 60%),
+    radial-gradient(900px 600px at 50% 120%, oklch(0.4 0.22 280 / 12%), transparent 60%);
   --gradient-neon: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta) 55%, var(--neon-lime));
   --gradient-primary: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
 
