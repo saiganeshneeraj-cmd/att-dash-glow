@@ -16,7 +16,7 @@ import { installErrorMonitor } from "../lib/error-monitor";
 import { Toaster } from "@/components/ui/sonner";
 import { PerfOverlay } from "@/components/PerfOverlay";
 // @ts-expect-error - JSX component without types
-import Aurora from "@/components/Aurora.jsx";
+import DarkVeil from "@/components/DarkVeil.jsx";
 
 function NotFoundComponent() {
   return (
@@ -126,12 +126,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <div className="aurora-bg-fixed">
-        <Aurora
-          colorStops={["#fffd00", "#0600e0", "#ff0000"]}
-          blend={0.32}
-          amplitude={1.0}
-          speed={1.2}
-        />
+        <DarkVeil speed={0.8} />
       </div>
       <Outlet />
       <Toaster position="top-center" richColors closeButton />
