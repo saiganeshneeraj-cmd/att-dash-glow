@@ -1074,7 +1074,7 @@ function UserMenu({ user, initial }: { user: { email?: string | null } | null; i
         <span className="text-[10px] text-muted-foreground">▾</span>
       </button>
       {open && (
-        <div className="animate-toast-in absolute right-0 top-full z-30 mt-2 w-52 rounded-xl border border-border bg-popover p-1.5 shadow-xl backdrop-blur-xl">
+        <div className="animate-toast-in absolute right-0 top-full z-[80] mt-2 w-52 rounded-xl border border-border bg-popover p-1.5 shadow-xl backdrop-blur-xl" style={{ backgroundColor: "hsl(var(--popover, 240 10% 8%))" }}>
           <div className="truncate px-3 py-2 text-[11px] text-muted-foreground">{user?.email}</div>
           <button
             onClick={() => { setOpen(false); signOut(); }}
