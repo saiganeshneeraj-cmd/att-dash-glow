@@ -1063,7 +1063,7 @@ function UserMenu({ user, initial }: { user: { email?: string | null } | null; i
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative z-[70]">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex h-10 items-center gap-2 rounded-full border border-border bg-card px-2 pr-3 transition hover:border-primary"
