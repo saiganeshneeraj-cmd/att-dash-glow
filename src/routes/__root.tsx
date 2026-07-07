@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { registerPwa } from "../lib/pwa";
 import { installErrorMonitor } from "../lib/error-monitor";
 import { Toaster } from "@/components/ui/sonner";
+import { PerfOverlay } from "@/components/PerfOverlay";
 
 function NotFoundComponent() {
   return (
