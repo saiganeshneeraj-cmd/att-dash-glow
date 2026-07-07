@@ -6,6 +6,7 @@ import { useAuth, signOut } from "@/hooks/use-auth";
 import { PRESETS, type PresetTimetable } from "@/lib/presets";
 import { downloadPdfReport, downloadImageReport, computeSummary, summaryToText } from "@/lib/report";
 import { loadCached, saveCached } from "@/lib/local-store";
+import { usePerfTracker, usePerfOverlay } from "@/lib/perf";
 import { BulkGrid, type BulkStatus } from "@/components/BulkGrid";
 import { BulkActionBar } from "@/components/BulkActionBar";
 import {
