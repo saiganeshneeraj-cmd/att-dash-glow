@@ -992,7 +992,7 @@ function Header({
             {busy === "pdf" ? "Building PDF…" : busy === "img" ? "Building image…" : busy === "share" ? "Preparing…" : "↓ Download"}
           </button>
           {menuOpen && (
-            <div className="animate-toast-in absolute right-0 top-full z-30 mt-2 w-56 rounded-2xl border border-primary/30 bg-popover p-1.5 shadow-2xl backdrop-blur-xl">
+            <div className="animate-toast-in absolute right-0 top-full z-[80] mt-2 w-56 rounded-2xl border border-primary/30 bg-popover p-1.5 shadow-2xl backdrop-blur-xl" style={{ backgroundColor: "hsl(var(--popover, 240 10% 8%))" }}>
               <button onClick={doPdf} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
                 <span>📄</span><div><div className="font-semibold">PDF report</div><div className="text-[10px] text-muted-foreground">Full summary + class log</div></div>
               </button>
