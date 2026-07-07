@@ -43,12 +43,16 @@ export function useAuth() {
 
 let signingOut = false;
 
+const signOutTimeout = new Promise<{ error: Error }>((resolve) => {
+  window.setTimeout(() => resolve({ error: new Error("Sign-out timed out") }), 2500);
+});
+
 export async function signOut() {
   if (signingOut) return;
   signingOut = true;
   const t = toast.loading("Signing out…");
   try {
-    await supabase.auth.signOut({ scope: "local" });
+    await Promise.race([supabase.auth.signOut({ scope: "local" }), signOutTimeout]);
     clearStoredAuthSession();
     toast.success("Signed out", { id: t });
   } catch (err) {
