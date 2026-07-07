@@ -754,7 +754,7 @@ function AttendancePage() {
 
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <div className="relative overflow-hidden rounded-[var(--radius-2xl)]">
+          <div className="relative z-0 overflow-hidden rounded-[var(--radius-2xl)]">
             <div className="absolute inset-0">
               <SoftAurora
                 speed={0.7}
