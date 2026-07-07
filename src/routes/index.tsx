@@ -57,13 +57,11 @@ type SosRow = { id: string; room_id: string; sender_id: string; sender_name: str
 
 const LS_KEY = "attendedge_v3";
 const LS_CUSTOM_PRESETS = "attendedge_custom_presets_v1";
-// Fast local YYYY-MM-DD formatter (avoids toISOString's UTC conversion cost).
-const isoLocal = (d: Date) => {
-  const y = d.getFullYear();
-  const m = d.getMonth() + 1;
-  const day = d.getDate();
-  return `${y}-${m < 10 ? "0" + m : m}-${day < 10 ? "0" + day : day}`;
-};
+// YYYY-MM-DD key used across the app. MUST stay UTC-based so it matches
+// every historical state key ever written via `toISOString().slice(0,10)` —
+// switching this to local time silently orphans existing attendance data
+// (reads miss, default to "attended", % jumps up).
+const isoLocal = (d: Date) => d.toISOString().slice(0, 10);
 const todayISO = () => isoLocal(new Date());
 
 // Precompute non-empty timetable slot indices per weekday. Cached by timetable reference.
