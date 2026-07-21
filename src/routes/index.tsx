@@ -820,6 +820,13 @@ function AttendancePage() {
           </section>
         )}
 
+        {hydrated && mode === "detailed" && total > 0 && (
+          <section className="mt-6 animate-fade-in">
+            <TrendChart detailed={detailed} target={target} />
+          </section>
+        )}
+
+
         <section className="mt-6 animate-fade-in">
           {!hydrated ? (
             <ContentSkeleton />
