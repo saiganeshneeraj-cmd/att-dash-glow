@@ -28,7 +28,7 @@ export const Route = createFileRoute("/")({
 /* ============================================================
    Data model
    ============================================================ */
-type Mode = "quick" | "detailed" | "history" | "rooms";
+type Mode = "quick" | "detailed" | "history" | "rooms" | "simulator";
 type DayKey = "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat";
 const DAYS: DayKey[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DOW_TO_DAY: Record<number, DayKey | undefined> = { 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat" };
@@ -577,6 +577,17 @@ function AttendancePage() {
   const roadmap = useMemo(() => buildRoadmap(detailed, attended, total), [detailed, attended, total]);
   const wrapped = useMemo(() => computeWrapped(detailed), [detailed]);
 
+  // Deep-link into DetailedTracker's inner tab from quick-nav buttons
+  const [detailedTab, setDetailedTab] = useState<"setup" | "log" | "bulk">("setup");
+  const jumpToDetailed = useCallback((tab: "setup" | "log" | "bulk") => {
+    setDetailedTab(tab);
+    setState((s) => (s.mode === "detailed" ? s : { ...s, mode: "detailed" }));
+    requestAnimationFrame(() => {
+      const el = document.getElementById("detailed-tracker-section");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
   const [badgePopup, setBadgePopup] = useState<{ icon: string; label: string; streak: number } | null>(null);
   useEffect(() => {
     if (!hydrated || activeStreak <= 0) return;
@@ -814,27 +825,47 @@ function AttendancePage() {
           <InsightsPanel status={status} target={target} safe={safe} total={total} streak={activeStreak} badge={badge} />
         </section>
 
-        {hydrated && total > 0 && (
-          <section className="mt-6 animate-fade-in">
-            <WhatIfPlanner attended={attended} total={total} />
+        {/* Quick navigation buttons */}
+        {hydrated && (
+          <section className="mt-5 animate-fade-in">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <button onClick={() => jumpToDetailed("setup")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-cyan)]">
+                <div className="text-lg">🗓️</div>
+                <div className="mt-1 text-sm font-bold text-foreground">Timetable Setup</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Jump to grid</div>
+              </button>
+              <button onClick={() => jumpToDetailed("log")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-magenta)]">
+                <div className="text-lg">✅</div>
+                <div className="mt-1 text-sm font-bold text-foreground">Daily Log</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Mark classes</div>
+              </button>
+              <button onClick={() => setMode("simulator")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-cyan)]">
+                <div className="text-lg">🎛️</div>
+                <div className="mt-1 text-sm font-bold text-foreground">Bunk Simulator</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Time-machine</div>
+              </button>
+              <button onClick={() => setMode("history")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-magenta)]">
+                <div className="text-lg">📊</div>
+                <div className="mt-1 text-sm font-bold text-foreground">History</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">See past days</div>
+              </button>
+            </div>
           </section>
         )}
 
-        {hydrated && mode === "detailed" && total > 0 && (
-          <section className="mt-6 animate-fade-in">
-            <TrendChart detailed={detailed} target={75} />
-          </section>
-        )}
-
-
-
-        <section className="mt-6 animate-fade-in">
+        <section id="detailed-tracker-section" className="mt-6 animate-fade-in">
           {!hydrated ? (
             <ContentSkeleton />
           ) : mode === "quick" ? (
             <QuickForm quick={quick} setQuick={setQuick} />
           ) : mode === "history" ? (
             <HistoryView detailed={detailed} />
+          ) : mode === "simulator" ? (
+            <BunkSimulator detailed={detailed} attended={attended} total={total} />
           ) : mode === "rooms" ? (
             <RoomsHub
               user={user}
@@ -855,6 +886,8 @@ function AttendancePage() {
               onSaveCustomPreset={saveCurrentAsPreset}
               onDeleteCustomPreset={deleteCustomPreset}
               captureUndo={captureUndo}
+              tab={detailedTab}
+              onTabChange={setDetailedTab}
             />
           )}
         </section>
@@ -985,7 +1018,7 @@ function Header({
     return () => document.removeEventListener("mousedown", h);
   }, [menuOpen]);
   const initial = user?.email?.[0]?.toUpperCase() ?? "?";
-  const reportMode: "quick" | "detailed" | "history" = state.mode === "rooms" ? "detailed" : state.mode;
+  const reportMode: "quick" | "detailed" | "history" = state.mode === "quick" ? "quick" : state.mode === "history" ? "history" : "detailed";
   const reportState = { mode: reportMode, quick: state.quick, detailed: state.detailed };
 
   const doPdf = async () => {
@@ -1035,14 +1068,14 @@ function Header({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <div className="inline-flex rounded-full border border-border bg-card p-1 backdrop-blur-md">
-          {(["detailed", "quick", "history", "rooms"] as Mode[]).map((m) => (
+        <div className="inline-flex flex-wrap rounded-full border border-border bg-card p-1 backdrop-blur-md">
+          {(["detailed", "quick", "simulator", "history", "rooms"] as Mode[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
               className={`rounded-full px-3 py-2 text-xs font-medium transition-all sm:px-4 sm:text-sm ${
                 mode === m ? "text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground"
               }`}
               style={mode === m ? { background: "var(--gradient-primary)" } : undefined}>
-              {m === "quick" ? "Quick" : m === "history" ? "History" : m === "rooms" ? "Rooms" : "Timetable"}
+              {m === "quick" ? "Quick" : m === "history" ? "History" : m === "rooms" ? "Rooms" : m === "simulator" ? "Simulator" : "Timetable"}
             </button>
           ))}
         </div>
@@ -1058,7 +1091,7 @@ function Header({
             {busy === "pdf" ? "Building PDF…" : busy === "img" ? "Building image…" : busy === "share" ? "Preparing…" : "↓ Download"}
           </button>
           {menuOpen && (
-            <div className="animate-toast-in absolute right-0 top-full z-[80] mt-2 w-56 rounded-2xl border border-primary/30 bg-popover p-1.5 shadow-2xl backdrop-blur-xl" style={{ backgroundColor: "hsl(var(--popover, 240 10% 8%))" }}>
+            <div className="animate-toast-in fixed inset-x-3 top-20 z-[120] w-auto rounded-2xl border border-primary/30 bg-popover p-1.5 shadow-2xl backdrop-blur-xl sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:w-64" style={{ backgroundColor: "hsl(var(--popover, 240 10% 8%))" }}>
               <button onClick={doPdf} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-accent">
                 <span>📄</span><div><div className="font-semibold">PDF report</div><div className="text-[10px] text-muted-foreground">Full summary + class log</div></div>
               </button>
@@ -1237,8 +1270,8 @@ function InsightsPanel({ status, target, safe, total, streak, badge }: {
     <div className="grid gap-4 sm:grid-cols-2">
       <InsightCard active={targetActive} color="var(--color-danger)" eyebrow="Target to Safety" big={target} unit={target === 1 ? "class" : "classes"}
         detail={total === 0 ? "Enter data to see your target." : `Attend the next ${target} classes consecutively to reach 75%.`} />
-      <InsightCard active={safeActive} color="var(--color-warning)" eyebrow="Available Bunk Coins" big={safe} unit={safe === 1 ? "coin" : "coins"}
-        detail={total === 0 ? "Enter data to mint your budget." : `Each marked absence spends 1 coin. Keep coins above zero.`} />
+      <InsightCard active={safeActive} color="var(--color-warning)" eyebrow="Available Bunk Classes" big={safe} unit={safe === 1 ? "class" : "classes"}
+        detail={total === 0 ? "Enter data to see your safe skip budget." : `Each marked absence uses 1 class. Keep this above zero to stay safe.`} />
     </div>
   );
 }
@@ -1837,16 +1870,20 @@ function WrappedCard({ wrapped, stats }: { wrapped: { mostSkipped: string; close
     else await navigator.clipboard?.writeText(text);
   };
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-primary/35 p-5 shadow-2xl" style={{ background: "linear-gradient(135deg, color-mix(in oklab, var(--neon-cyan) 28%, var(--background)), color-mix(in oklab, var(--neon-magenta) 30%, var(--background)))" }}>
-      <div className="text-[10px] font-black uppercase tracking-[0.25em] text-primary-foreground/70">Semester Wrapped</div>
-      <div className="mt-3 text-5xl font-black text-primary-foreground">{stats.attendancePct}%</div>
-      <div className="text-sm font-semibold text-primary-foreground/80">Final attendance vibe</div>
-      <div className="mt-5 grid gap-3 text-primary-foreground">
-        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Most skipped day</div><div className="font-bold">{wrapped.mostSkipped}</div></div>
-        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Closest call with 75%</div><div className="font-bold">{wrapped.closestCall}</div></div>
-        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Academic hours logged</div><div className="font-bold">{wrapped.hours} hrs</div></div>
+    <div className="relative overflow-hidden rounded-3xl border border-primary/40 p-5 shadow-2xl"
+      style={{ background: "linear-gradient(135deg, oklch(0.22 0.08 260), oklch(0.16 0.06 300) 60%, oklch(0.12 0.04 330))" }}>
+      <div className="pointer-events-none absolute inset-0 opacity-60" style={{ background: "radial-gradient(circle at 15% 10%, color-mix(in oklab, var(--neon-cyan) 30%, transparent), transparent 55%), radial-gradient(circle at 85% 90%, color-mix(in oklab, var(--neon-magenta) 30%, transparent), transparent 55%)" }} />
+      <div className="relative">
+        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-neon-cyan" style={{ color: "var(--neon-cyan)" }}>Semester Wrapped</div>
+        <div className="mt-3 text-5xl font-black text-white">{stats.attendancePct}%</div>
+        <div className="text-sm font-semibold text-white/70">Final attendance vibe</div>
+        <div className="mt-5 grid gap-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3"><div className="text-[10px] uppercase tracking-widest text-white/50">Most skipped day</div><div className="mt-1 font-bold text-white">{wrapped.mostSkipped}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3"><div className="text-[10px] uppercase tracking-widest text-white/50">Closest call with 75%</div><div className="mt-1 font-bold text-white">{wrapped.closestCall}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3"><div className="text-[10px] uppercase tracking-widest text-white/50">Academic hours logged</div><div className="mt-1 font-bold text-white">{wrapped.hours} hrs</div></div>
+        </div>
+        <button onClick={share} className="mt-5 rounded-full px-4 py-2 text-xs font-black text-primary-foreground shadow-lg transition hover:opacity-90" style={{ background: "var(--gradient-primary)" }}>Share Wrapped</button>
       </div>
-      <button onClick={share} className="mt-5 rounded-full bg-background/80 px-4 py-2 text-xs font-black text-foreground">Share Wrapped</button>
     </div>
   );
 }
@@ -1882,11 +1919,197 @@ function NumberField({ label, value, onChange, max }: { label: string; value: nu
 }
 
 /* ============================================================
+   Bunk Simulator — time-machine timeline scrubber
+   ============================================================ */
+function BunkSimulator({ detailed, attended, total }: { detailed: DetailedData; attended: number; total: number }) {
+  type Policy = "skip-all" | "skip-fri" | "skip-mon" | "skip-weekly" | "attend-all";
+  const [days, setDays] = useState(14);
+  const [policy, setPolicy] = useState<Policy>("skip-all");
+  const [skipDow, setSkipDow] = useState<number>(5); // for skip-weekly, default Friday
+
+  const projection = useMemo(() => {
+    const holidays = new Set(detailed.holidays);
+    const slots = activeSlotsByDay(detailed.timetable);
+    const start = new Date(todayISO() + "T00:00:00");
+    start.setDate(start.getDate() + 1);
+    let a = attended, t = total;
+    let riskDate: string | null = null;
+    const pts: { iso: string; label: string; pct: number; skipped: boolean }[] = [];
+    const cur = new Date(start);
+    for (let i = 0; i < days; i++) {
+      const dayKey = DOW_TO_DAY[cur.getDay()];
+      const iso = isoLocal(cur);
+      const classes = dayKey && !holidays.has(iso) ? slots[dayKey].length : 0;
+      let skip = false;
+      if (classes > 0) {
+        if (policy === "skip-all") skip = true;
+        else if (policy === "skip-fri") skip = cur.getDay() === 5;
+        else if (policy === "skip-mon") skip = cur.getDay() === 1;
+        else if (policy === "skip-weekly") skip = cur.getDay() === skipDow;
+        else if (policy === "attend-all") skip = false;
+        if (skip) t += classes;
+        else { a += classes; t += classes; }
+      }
+      const p = pctFor(a, t);
+      if (!riskDate && p < 75 && t > 0) riskDate = iso;
+      pts.push({ iso, label: `${MONTHS[cur.getMonth()]} ${cur.getDate()}`, pct: p, skipped: skip && classes > 0 });
+      cur.setDate(cur.getDate() + 1);
+    }
+    return { finalPct: pctFor(a, t), finalAttended: a, finalTotal: t, riskDate, points: pts };
+  }, [detailed, attended, total, days, policy, skipDow]);
+
+  const { finalPct, finalAttended, finalTotal, riskDate, points } = projection;
+  const color = finalPct >= 80 ? "var(--color-success)" : finalPct >= 75 ? "var(--color-warning)" : "var(--color-danger)";
+  const statusLabel = finalPct >= 80 ? "Safe zone" : finalPct >= 75 ? "On the edge" : "Danger — below 75%";
+  const currentPct = pctFor(attended, total);
+  const delta = Math.round((finalPct - currentPct) * 10) / 10;
+
+  // sparkline
+  const W = 640, H = 140, PAD = 12;
+  const iw = W - PAD * 2, ih = H - PAD * 2;
+  const minV = Math.min(70, ...points.map(p => p.pct)) - 2;
+  const maxV = Math.max(85, ...points.map(p => p.pct)) + 2;
+  const span = Math.max(1, maxV - minV);
+  const px = (i: number) => PAD + (points.length <= 1 ? 0 : (i / (points.length - 1)) * iw);
+  const py = (v: number) => PAD + ih - ((v - minV) / span) * ih;
+  const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${px(i).toFixed(1)} ${py(p.pct).toFixed(1)}`).join(" ");
+  const targetY = py(75);
+
+  const riskLabel = riskDate
+    ? `⚠️ Falls below 75% on ${new Date(riskDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`
+    : "✅ Stays above 75% for the whole window";
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="glass-neon p-5 sm:p-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Bunk Simulator</div>
+            <h2 className="text-xl font-bold text-foreground sm:text-2xl" style={{ fontFamily: "var(--font-display)" }}>
+              Time-Machine Scrubber
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Drag the slider forward, pick a policy, and see exactly when your attendance risk hits.</p>
+          </div>
+        </div>
+
+        {total === 0 ? (
+          <div className="mt-6 rounded-2xl border border-border bg-background/40 p-6 text-center text-sm text-muted-foreground">
+            Fill your timetable and mark a few classes first — the simulator uses your real schedule to forecast.
+          </div>
+        ) : (
+          <>
+            <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+              {/* Ring */}
+              <div className="relative flex flex-col items-center justify-center rounded-3xl border border-border bg-background/30 p-6"
+                style={{ boxShadow: `inset 0 0 60px -20px ${color}` }}>
+                <div className="relative h-52 w-52">
+                  <svg viewBox="0 0 200 200" className="h-full w-full -rotate-90">
+                    <circle cx="100" cy="100" r="86" fill="none" stroke="color-mix(in oklab, currentColor 10%, transparent)" strokeWidth="14" className="text-foreground" />
+                    <circle cx="100" cy="100" r="86" fill="none" stroke={color} strokeWidth="14" strokeLinecap="round"
+                      strokeDasharray={`${(finalPct / 100) * 540} 540`}
+                      style={{ transition: "stroke-dasharray 260ms ease, stroke 260ms ease", filter: `drop-shadow(0 0 12px ${color})` }} />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <div className="text-5xl font-black text-foreground" style={{ textShadow: `0 0 24px ${color}` }}>{finalPct}%</div>
+                    <div className="mt-1 text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Projected</div>
+                    <div className="mt-1 text-[11px] font-semibold" style={{ color }}>
+                      {delta >= 0 ? `▲ +${delta}` : `▼ ${delta}`}%
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-full border px-3 py-1 text-xs font-bold"
+                  style={{ color, borderColor: `color-mix(in oklab, ${color} 55%, transparent)`, background: `color-mix(in oklab, ${color} 12%, transparent)` }}>
+                  {statusLabel}
+                </div>
+                <div className="mt-2 text-[11px] text-muted-foreground">{finalAttended}/{finalTotal} classes after {days} day{days === 1 ? "" : "s"}</div>
+              </div>
+
+              {/* Controls */}
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-border bg-background/30 p-4">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="font-semibold uppercase tracking-widest">Time-machine · Days ahead</span>
+                    <span className="font-black text-foreground">{days} day{days === 1 ? "" : "s"}</span>
+                  </div>
+                  <input type="range" min={1} max={60} value={days} onChange={(e) => setDays(Number(e.target.value))}
+                    className="mt-3 w-full accent-[var(--neon-cyan)]" />
+                  <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                    <span>1d</span><span>2wk</span><span>1mo</span><span>60d</span>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/30 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Policy</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {([
+                      { id: "skip-all", label: "🚫 Skip everything" },
+                      { id: "skip-fri", label: "🎉 Skip Fridays" },
+                      { id: "skip-mon", label: "😴 Skip Mondays" },
+                      { id: "skip-weekly", label: "📅 Skip weekly…" },
+                      { id: "attend-all", label: "✅ Attend all" },
+                    ] as { id: Policy; label: string }[]).map((opt) => (
+                      <button key={opt.id} onClick={() => setPolicy(opt.id)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${policy === opt.id ? "border-primary/60 bg-primary/15 text-foreground shadow-[0_0_18px_-6px_var(--neon-cyan)]" : "border-border bg-card/60 text-muted-foreground hover:text-foreground"}`}>
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {policy === "skip-weekly" && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {[1, 2, 3, 4, 5, 6].map((d) => (
+                        <button key={d} onClick={() => setSkipDow(d)}
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition ${skipDow === d ? "bg-primary text-primary-foreground" : "bg-card/60 text-muted-foreground hover:text-foreground"}`}>
+                          {WEEKDAYS[d].slice(0, 3)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border p-4"
+                  style={{ borderColor: riskDate ? "color-mix(in oklab, var(--color-danger) 55%, transparent)" : "color-mix(in oklab, var(--color-success) 55%, transparent)",
+                    background: riskDate ? "color-mix(in oklab, var(--color-danger) 10%, transparent)" : "color-mix(in oklab, var(--color-success) 10%, transparent)" }}>
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Exam eligibility risk</div>
+                  <div className="mt-1 text-sm font-bold text-foreground">{riskLabel}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sparkline */}
+            <div className="mt-6 rounded-2xl border border-border bg-background/30 p-4">
+              <div className="mb-2 flex items-baseline justify-between">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Projected attendance curve</div>
+                <div className="text-[11px] text-muted-foreground">Red dots = skipped days</div>
+              </div>
+              <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full" style={{ height: 140 }}>
+                <line x1={PAD} y1={targetY} x2={W - PAD} y2={targetY} stroke="color-mix(in oklab, var(--color-warning) 60%, transparent)" strokeWidth="1" strokeDasharray="4 4" />
+                <path d={path} fill="none" stroke={color} strokeWidth="2.5" style={{ filter: `drop-shadow(0 0 6px ${color})` }} />
+                {points.map((p, i) => p.skipped ? (
+                  <circle key={i} cx={px(i)} cy={py(p.pct)} r="2.5" fill="var(--color-danger)" />
+                ) : null)}
+              </svg>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Existing tools embedded */}
+      {total > 0 && <WhatIfPlanner attended={attended} total={total} />}
+      <TrendChart detailed={detailed} target={75} />
+    </div>
+  );
+}
+
+
+
+/* ============================================================
    Detailed Tracker
    ============================================================ */
 function DetailedTracker({
   detailed, setDetailed, applyPresetById, allPresets, customPresets,
   onSaveCustomPreset, onDeleteCustomPreset, captureUndo,
+  tab: tabProp, onTabChange,
 }: {
   detailed: DetailedData;
   setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
@@ -1896,8 +2119,12 @@ function DetailedTracker({
   onSaveCustomPreset: (label: string) => void;
   onDeleteCustomPreset: (id: string) => void;
   captureUndo: (label: string) => void;
+  tab?: "setup" | "log" | "bulk";
+  onTabChange?: (t: "setup" | "log" | "bulk") => void;
 }) {
-  const [tab, setTab] = useState<"setup" | "log" | "bulk">("setup");
+  const [tabLocal, setTabLocal] = useState<"setup" | "log" | "bulk">("setup");
+  const tab = tabProp ?? tabLocal;
+  const setTab = (t: "setup" | "log" | "bulk") => { setTabLocal(t); onTabChange?.(t); };
 
   return (
     <div className="glass-neon overflow-hidden p-4 sm:p-6">
