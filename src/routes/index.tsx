@@ -842,7 +842,7 @@ function NotifyOnboardModal({ onEnable, onSkip, onTest, info }: {
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "blocked">("idle");
   const hasClasses = info.classesToday > 0;
   return (
-    <div className="fixed inset-x-0 top-0 z-[60] flex items-start justify-center bg-black/55 px-3 pb-10 pt-3 backdrop-blur-sm animate-fade-in sm:pt-5">
+    <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-black/70 px-3 pb-10 pt-3 backdrop-blur-md animate-fade-in sm:pt-5">
       <div className="glass-neon relative w-full max-w-lg overflow-hidden rounded-3xl p-4 sm:p-5 animate-toast-in max-h-[80vh] overflow-y-auto"
         style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
