@@ -1237,8 +1237,8 @@ function InsightsPanel({ status, target, safe, total, streak, badge }: {
     <div className="grid gap-4 sm:grid-cols-2">
       <InsightCard active={targetActive} color="var(--color-danger)" eyebrow="Target to Safety" big={target} unit={target === 1 ? "class" : "classes"}
         detail={total === 0 ? "Enter data to see your target." : `Attend the next ${target} classes consecutively to reach 75%.`} />
-      <InsightCard active={safeActive} color="var(--color-warning)" eyebrow="Available Bunk Coins" big={safe} unit={safe === 1 ? "coin" : "coins"}
-        detail={total === 0 ? "Enter data to mint your budget." : `Each marked absence spends 1 coin. Keep coins above zero.`} />
+      <InsightCard active={safeActive} color="var(--color-warning)" eyebrow="Available Bunk Classes" big={safe} unit={safe === 1 ? "class" : "classes"}
+        detail={total === 0 ? "Enter data to see your safe skip budget." : `Each marked absence uses 1 class. Keep this above zero to stay safe.`} />
     </div>
   );
 }
