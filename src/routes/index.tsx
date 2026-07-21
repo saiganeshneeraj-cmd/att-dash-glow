@@ -2206,11 +2206,16 @@ const DayCard = memo(function DayCard({
         // Group consecutive periods sharing the same subject into a single card.
         // Each period is still counted individually — actions fan out to every idx in the group.
         type Group = { startIdx: number; endIdx: number; subject: string };
-        const groups: (Group | { free: true; idx: number })[] = [];
+        type FreeGroup = { free: true; startIdx: number; endIdx: number };
+        const groups: (Group | FreeGroup)[] = [];
         for (let i = 0; i < row.length; i++) {
           const subj = (row[i] ?? "").trim();
-          if (!subj) { groups.push({ free: true, idx: i }); continue; }
           const last = groups[groups.length - 1];
+          if (!subj) {
+            if (last && "free" in last && last.endIdx === i - 1) last.endIdx = i;
+            else groups.push({ free: true, startIdx: i, endIdx: i });
+            continue;
+          }
           if (last && "subject" in last && last.subject === subj && last.endIdx === i - 1) {
             last.endIdx = i;
           } else {
@@ -2231,13 +2236,16 @@ const DayCard = memo(function DayCard({
               opacity: isHoliday ? 0.45 : 1, pointerEvents: isHoliday ? "none" : "auto" }}>
             {groups.map((g, gi) => {
               if ("free" in g) {
+                const label = rangeLabel(g.startIdx, g.endIdx);
+                const count = g.endIdx - g.startIdx + 1;
                 return (
                   <div key={`f-${gi}`} className="rounded-xl border border-dashed border-border/60 bg-background/20 p-3 text-center text-[11px] text-muted-foreground">
-                    <div className="opacity-70">{periods[g.idx]}</div>
-                    <div className="mt-1 opacity-40">Free</div>
+                    <div className="opacity-70">{label}</div>
+                    <div className="mt-1 opacity-40">Free{count > 1 ? ` · ${count} slots` : ""}</div>
                   </div>
                 );
               }
+
               const indices: number[] = [];
               for (let i = g.startIdx; i <= g.endIdx; i++) indices.push(i);
               const statuses = indices.map((i) => states[`${iso}__${i}`] ?? "attended");
