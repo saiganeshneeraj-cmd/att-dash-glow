@@ -842,7 +842,7 @@ function NotifyOnboardModal({ onEnable, onSkip, onTest, info }: {
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "blocked">("idle");
   const hasClasses = info.classesToday > 0;
   return (
-    <div className="fixed inset-x-0 top-0 z-[60] flex items-start justify-center bg-black/55 px-3 pb-10 pt-3 backdrop-blur-sm animate-fade-in sm:pt-5">
+    <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-black/70 px-3 pb-10 pt-3 backdrop-blur-md animate-fade-in sm:pt-5">
       <div className="glass-neon relative w-full max-w-lg overflow-hidden rounded-3xl p-4 sm:p-5 animate-toast-in max-h-[80vh] overflow-y-auto"
         style={{ boxShadow: "0 0 60px -8px var(--neon-magenta), 0 0 120px -20px var(--neon-cyan)" }}>
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full blur-3xl opacity-60"
@@ -2202,75 +2202,141 @@ const DayCard = memo(function DayCard({
         </div>
       </div>
 
-      <div className="grid gap-2"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-          opacity: isHoliday ? 0.45 : 1, pointerEvents: isHoliday ? "none" : "auto" }}>
-        {row.map((subj, idx) => {
-          if (!subj.trim()) {
-            return (
-              <div key={idx} className="rounded-xl border border-dashed border-border/60 bg-background/20 p-3 text-center text-[11px] text-muted-foreground">
-                <div className="opacity-70">{periods[idx]}</div>
-                <div className="mt-1 opacity-40">Free</div>
-              </div>
-            );
+      {(() => {
+        // Group consecutive periods sharing the same subject into a single card.
+        // Each period is still counted individually — actions fan out to every idx in the group.
+        type Group = { startIdx: number; endIdx: number; subject: string };
+        const groups: (Group | { free: true; idx: number })[] = [];
+        for (let i = 0; i < row.length; i++) {
+          const subj = (row[i] ?? "").trim();
+          if (!subj) { groups.push({ free: true, idx: i }); continue; }
+          const last = groups[groups.length - 1];
+          if (last && "subject" in last && last.subject === subj && last.endIdx === i - 1) {
+            last.endIdx = i;
+          } else {
+            groups.push({ startIdx: i, endIdx: i, subject: subj });
           }
-          const key = `${iso}__${idx}`;
-          const st = states[key] ?? "attended";
-          if (st === "cancelled") {
-            return (
-              <div key={idx} className="flex flex-col rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
-                <div className="text-[10px] uppercase tracking-widest opacity-70">{periods[idx]}</div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <span className="truncate line-through">{subj}</span>
-                  <button onClick={() => onSetState(iso, idx, "attended")}
-                    className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground hover:bg-accent">
-                    Undo
-                  </button>
-                </div>
-                <div className="mt-1 text-[10px] opacity-70">Cancelled</div>
-              </div>
-            );
-          }
-          const attended = st === "attended";
-          const color = attended ? "var(--color-success)" : "var(--color-danger)";
-          return (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => onSetState(iso, idx, attended ? "missed" : "attended")}
-              className="press-card tilt-3d group relative overflow-hidden rounded-xl border p-3 text-left text-sm font-medium"
-              style={{
-                borderColor: `color-mix(in oklab, ${color} 55%, transparent)`,
-                backgroundColor: `color-mix(in oklab, ${color} 14%, transparent)`,
-                color,
-                boxShadow: `0 0 24px -10px ${color}, inset 0 0 0 1px color-mix(in oklab, ${color} 25%, transparent)`,
-              }}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] uppercase tracking-widest opacity-80">{periods[idx]}</span>
-                <span
-                  role="button"
-                  aria-label="Cancel this class"
-                  title="Cancel this class"
-                  onClick={(e) => { e.stopPropagation(); onSetState(iso, idx, "cancelled"); }}
-                  className="cursor-pointer rounded-md border border-current/30 px-1.5 text-[10px] opacity-70 transition hover:opacity-100">
-                  ✕
-                </span>
-              </div>
-              <div className="mt-1 flex items-center gap-2">
-                <span
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
-                  style={{ backgroundColor: color, color: "oklch(0.14 0.03 275)", boxShadow: `0 0 10px ${color}` }}>
-                  {attended ? "✓" : "✕"}
-                </span>
-                <span className="truncate text-base">{subj}</span>
-              </div>
-              <div className="mt-1 text-[10px] uppercase tracking-widest opacity-80">
-                {attended ? "Attended · tap to mark absent" : "Absent · tap to mark present"}
-              </div>
-            </button>
-          );
-        })}
-      </div>
+        }
+        const rangeLabel = (a: number, b: number) => {
+          const first = periods[a] ?? `P${a + 1}`;
+          const last = periods[b] ?? `P${b + 1}`;
+          if (a === b) return first;
+          const startTime = first.split(/[-–]/)[0]?.trim() ?? first;
+          const endTime = last.split(/[-–]/)[1]?.trim() ?? last;
+          return `${startTime}–${endTime}`;
+        };
+        return (
+          <div className="grid gap-2"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+              opacity: isHoliday ? 0.45 : 1, pointerEvents: isHoliday ? "none" : "auto" }}>
+            {groups.map((g, gi) => {
+              if ("free" in g) {
+                return (
+                  <div key={`f-${gi}`} className="rounded-xl border border-dashed border-border/60 bg-background/20 p-3 text-center text-[11px] text-muted-foreground">
+                    <div className="opacity-70">{periods[g.idx]}</div>
+                    <div className="mt-1 opacity-40">Free</div>
+                  </div>
+                );
+              }
+              const indices: number[] = [];
+              for (let i = g.startIdx; i <= g.endIdx; i++) indices.push(i);
+              const statuses = indices.map((i) => states[`${iso}__${i}`] ?? "attended");
+              const allSame = statuses.every((s) => s === statuses[0]);
+              const anyCancelled = statuses.some((s) => s === "cancelled");
+              const st: "attended" | "missed" | "cancelled" | "mixed" =
+                anyCancelled && allSame ? "cancelled"
+                : !allSame ? "mixed"
+                : (statuses[0] as "attended" | "missed");
+              const label = rangeLabel(g.startIdx, g.endIdx);
+              const count = indices.length;
+              const setAll = (next: "attended" | "missed" | "cancelled") => {
+                indices.forEach((i) => onSetState(iso, i, next));
+              };
+
+              if (st === "cancelled") {
+                return (
+                  <div key={gi} className="flex flex-col rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
+                    <div className="text-[10px] uppercase tracking-widest opacity-70">{label}</div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="truncate line-through">{g.subject}</span>
+                      <button onClick={() => setAll("attended")}
+                        className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground hover:bg-accent">
+                        Undo
+                      </button>
+                    </div>
+                    <div className="mt-1 text-[10px] opacity-70">Cancelled{count > 1 ? ` · ${count} periods` : ""}</div>
+                  </div>
+                );
+              }
+
+              if (st === "mixed") {
+                // Rare: user marked individual periods differently before merge went live.
+                // Offer quick unify actions instead of hiding the state.
+                return (
+                  <div key={gi} className="flex flex-col gap-2 rounded-xl border border-warning/50 bg-warning/10 p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] uppercase tracking-widest text-warning">{label} · Mixed</span>
+                      <span className="text-[10px] text-muted-foreground">{count} periods</span>
+                    </div>
+                    <div className="truncate font-semibold text-foreground">{g.subject}</div>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setAll("attended")}
+                        className="flex-1 rounded-md border border-success/40 bg-success/15 px-2 py-1 text-[11px] font-semibold text-success">
+                        ✓ All present
+                      </button>
+                      <button onClick={() => setAll("missed")}
+                        className="flex-1 rounded-md border border-destructive/40 bg-destructive/15 px-2 py-1 text-[11px] font-semibold text-destructive">
+                        ✕ All absent
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              const attended = st === "attended";
+              const color = attended ? "var(--color-success)" : "var(--color-danger)";
+              return (
+                <button
+                  key={gi}
+                  type="button"
+                  onClick={() => setAll(attended ? "missed" : "attended")}
+                  className="press-card tilt-3d group relative overflow-hidden rounded-xl border p-3 text-left text-sm font-medium"
+                  style={{
+                    borderColor: `color-mix(in oklab, ${color} 55%, transparent)`,
+                    backgroundColor: `color-mix(in oklab, ${color} 14%, transparent)`,
+                    color,
+                    boxShadow: `0 0 24px -10px ${color}, inset 0 0 0 1px color-mix(in oklab, ${color} 25%, transparent)`,
+                  }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase tracking-widest opacity-80">
+                      {label}{count > 1 ? ` · ${count} periods` : ""}
+                    </span>
+                    <span
+                      role="button"
+                      aria-label="Cancel this class"
+                      title="Cancel this class"
+                      onClick={(e) => { e.stopPropagation(); setAll("cancelled"); }}
+                      className="cursor-pointer rounded-md border border-current/30 px-1.5 text-[10px] opacity-70 transition hover:opacity-100">
+                      ✕
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-bold"
+                      style={{ backgroundColor: color, color: "oklch(0.14 0.03 275)", boxShadow: `0 0 10px ${color}` }}>
+                      {attended ? "✓" : "✕"}
+                    </span>
+                    <span className="truncate text-base">{g.subject}</span>
+                  </div>
+                  <div className="mt-1 text-[10px] uppercase tracking-widest opacity-80">
+                    {attended ? "Attended · tap to mark absent" : "Absent · tap to mark present"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 });
@@ -2309,6 +2375,7 @@ function UndoToast({ toast, onUndo, onDismiss }: {
    ============================================================ */
 type HistoryEntry = {
   iso: string;
+  localIso: string;
   dateLabel: string;
   day: DayKey;
   periodIdx: number;
@@ -2316,6 +2383,9 @@ type HistoryEntry = {
   subject: string;
   status: "attended" | "missed" | "cancelled" | "holiday";
 };
+
+const toLocalIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 function HistoryView({ detailed }: { detailed: DetailedData }) {
   const [from, setFrom] = useState<string>(detailed.startDate);
@@ -2337,6 +2407,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
     const cur = new Date(s);
     while (cur <= e) {
       const iso = cur.toISOString().slice(0, 10);
+      const localIso = toLocalIso(cur);
       const day = DOW_TO_DAY[cur.getDay()];
       if (day) {
         const row = detailed.timetable[day] || [];
@@ -2346,7 +2417,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
           const key = `${iso}__${idx}`;
           const st = isHoliday ? "holiday" : (detailed.states[key] ?? "attended");
           arr.push({
-            iso, dateLabel: formatShortDate(cur), day,
+            iso, localIso, dateLabel: formatShortDate(cur), day,
             periodIdx: idx, periodLabel: detailed.periods[idx] ?? `P${idx + 1}`,
             subject: subj, status: st as HistoryEntry["status"],
           });
@@ -2365,8 +2436,10 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
 
   const filtered = useMemo(() => {
     return allEntries.filter((e) => {
-      if (from && e.iso < from) return false;
-      if (to && e.iso > to) return false;
+      // Compare against localIso so a "from" date picked in the browser (literal
+      // calendar day) still matches entries even when toISOString() shifts by TZ.
+      if (from && e.localIso < from) return false;
+      if (to && e.localIso > to) return false;
       if (statusFilter !== "all" && e.status !== statusFilter) return false;
       if (subjectFilter !== "all" && e.subject !== subjectFilter) return false;
       return true;
