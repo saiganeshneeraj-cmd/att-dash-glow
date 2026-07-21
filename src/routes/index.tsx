@@ -825,27 +825,47 @@ function AttendancePage() {
           <InsightsPanel status={status} target={target} safe={safe} total={total} streak={activeStreak} badge={badge} />
         </section>
 
-        {hydrated && total > 0 && (
-          <section className="mt-6 animate-fade-in">
-            <WhatIfPlanner attended={attended} total={total} />
+        {/* Quick navigation buttons */}
+        {hydrated && (
+          <section className="mt-5 animate-fade-in">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <button onClick={() => jumpToDetailed("setup")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-cyan)]">
+                <div className="text-lg">🗓️</div>
+                <div className="mt-1 text-sm font-bold text-foreground">Timetable Setup</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Jump to grid</div>
+              </button>
+              <button onClick={() => jumpToDetailed("log")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-magenta)]">
+                <div className="text-lg">✅</div>
+                <div className="mt-1 text-sm font-bold text-foreground">Daily Log</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Mark classes</div>
+              </button>
+              <button onClick={() => setMode("simulator")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-cyan)]">
+                <div className="text-lg">🎛️</div>
+                <div className="mt-1 text-sm font-bold text-foreground">Bunk Simulator</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Time-machine</div>
+              </button>
+              <button onClick={() => setMode("history")}
+                className="press-card group relative overflow-hidden rounded-2xl border border-border bg-card/60 p-4 text-left backdrop-blur-md transition hover:border-primary/50 hover:shadow-[0_0_28px_-8px_var(--neon-magenta)]">
+                <div className="text-lg">📊</div>
+                <div className="mt-1 text-sm font-bold text-foreground">History</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">See past days</div>
+              </button>
+            </div>
           </section>
         )}
 
-        {hydrated && mode === "detailed" && total > 0 && (
-          <section className="mt-6 animate-fade-in">
-            <TrendChart detailed={detailed} target={75} />
-          </section>
-        )}
-
-
-
-        <section className="mt-6 animate-fade-in">
+        <section id="detailed-tracker-section" className="mt-6 animate-fade-in">
           {!hydrated ? (
             <ContentSkeleton />
           ) : mode === "quick" ? (
             <QuickForm quick={quick} setQuick={setQuick} />
           ) : mode === "history" ? (
             <HistoryView detailed={detailed} />
+          ) : mode === "simulator" ? (
+            <BunkSimulator detailed={detailed} attended={attended} total={total} />
           ) : mode === "rooms" ? (
             <RoomsHub
               user={user}
@@ -866,6 +886,8 @@ function AttendancePage() {
               onSaveCustomPreset={saveCurrentAsPreset}
               onDeleteCustomPreset={deleteCustomPreset}
               captureUndo={captureUndo}
+              tab={detailedTab}
+              onTabChange={setDetailedTab}
             />
           )}
         </section>
