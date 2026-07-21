@@ -1335,6 +1335,112 @@ function WhatIfPlanner({ attended, total }: { attended: number; total: number })
   );
 }
 
+function TrendChart({ detailed, target = 75 }: { detailed: DetailedData; target?: number }) {
+  const [range, setRange] = useState<7 | 14 | 30 | 90>(30);
+  const points = useMemo(() => computeTrend(detailed, range), [detailed, range]);
+  const [hover, setHover] = useState<number | null>(null);
+
+  if (points.length < 2) {
+    return (
+      <div className="glass p-5 sm:p-6">
+        <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Attendance Trend</div>
+        <p className="mt-2 text-sm text-muted-foreground">Mark a few days to unlock your trend chart.</p>
+      </div>
+    );
+  }
+
+  const W = 640, H = 160, PAD_L = 32, PAD_R = 12, PAD_T = 14, PAD_B = 22;
+  const iw = W - PAD_L - PAD_R, ih = H - PAD_T - PAD_B;
+  const values = points.map(p => p.pct);
+  const minV = Math.max(0, Math.floor(Math.min(...values, target) - 5));
+  const maxV = Math.min(100, Math.ceil(Math.max(...values, target) + 5));
+  const span = Math.max(1, maxV - minV);
+  const x = (i: number) => PAD_L + (points.length === 1 ? 0 : (i / (points.length - 1)) * iw);
+  const y = (v: number) => PAD_T + ih - ((v - minV) / span) * ih;
+
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(2)} ${y(p.pct).toFixed(2)}`).join(" ");
+  const areaPath = `${linePath} L ${x(points.length - 1).toFixed(2)} ${(PAD_T + ih).toFixed(2)} L ${x(0).toFixed(2)} ${(PAD_T + ih).toFixed(2)} Z`;
+
+  const first = points[0].pct, last = points[points.length - 1].pct;
+  const delta = Math.round((last - first) * 10) / 10;
+  const above = last >= target;
+  const hoverPoint = hover != null ? points[hover] : null;
+
+  return (
+    <div className="glass p-5 sm:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground">Attendance Trend</div>
+          <h3 className="text-lg font-bold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+            Last {range} days · {last}%{" "}
+            <span className={`ml-1 text-xs font-semibold ${delta >= 0 ? "text-success" : "text-destructive"}`}>
+              {delta >= 0 ? `▲ +${delta}` : `▼ ${delta}`}%
+            </span>
+          </h3>
+        </div>
+        <div className="flex gap-1 rounded-full border border-border bg-background/40 p-1">
+          {([7, 14, 30, 90] as const).map(r => (
+            <button key={r} onClick={() => setRange(r)}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${range === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+              {r}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-x-auto">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full" style={{ height: 180 }}
+          onPointerLeave={() => setHover(null)}
+          onPointerMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const px = ((e.clientX - rect.left) / rect.width) * W;
+            let best = 0, bestD = Infinity;
+            for (let i = 0; i < points.length; i++) {
+              const d = Math.abs(px - x(i));
+              if (d < bestD) { bestD = d; best = i; }
+            }
+            setHover(best);
+          }}>
+          <defs>
+            <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={above ? "var(--color-success)" : "var(--color-danger)"} stopOpacity="0.35" />
+              <stop offset="100%" stopColor={above ? "var(--color-success)" : "var(--color-danger)"} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {/* target line */}
+          <line x1={PAD_L} x2={W - PAD_R} y1={y(target)} y2={y(target)}
+            stroke="var(--color-warning)" strokeDasharray="4 4" strokeWidth={1} opacity={0.7} />
+          <text x={W - PAD_R} y={y(target) - 4} textAnchor="end" fontSize="10" fill="var(--color-warning)">target {target}%</text>
+          {/* y ticks */}
+          {[minV, Math.round((minV + maxV) / 2), maxV].map(v => (
+            <text key={v} x={PAD_L - 6} y={y(v) + 3} textAnchor="end" fontSize="9" fill="var(--muted-foreground)">{v}</text>
+          ))}
+          <path d={areaPath} fill="url(#trendFill)" />
+          <path d={linePath} fill="none" stroke={above ? "var(--color-success)" : "var(--color-danger)"} strokeWidth={2}
+            style={{ filter: `drop-shadow(0 0 6px ${above ? "var(--color-success)" : "var(--color-danger)"})` }} />
+          {hover != null && (
+            <>
+              <line x1={x(hover)} x2={x(hover)} y1={PAD_T} y2={PAD_T + ih} stroke="var(--foreground)" strokeOpacity="0.25" />
+              <circle cx={x(hover)} cy={y(points[hover].pct)} r={4} fill={above ? "var(--color-success)" : "var(--color-danger)"} stroke="var(--background)" strokeWidth={2} />
+            </>
+          )}
+          {/* first / last x labels */}
+          <text x={PAD_L} y={H - 6} fontSize="9" fill="var(--muted-foreground)">{points[0].label}</text>
+          <text x={W - PAD_R} y={H - 6} textAnchor="end" fontSize="9" fill="var(--muted-foreground)">{points[points.length - 1].label}</text>
+        </svg>
+      </div>
+
+      {hoverPoint && (
+        <div className="mt-1 text-[11px] text-muted-foreground">
+          <span className="font-semibold text-foreground">{hoverPoint.label}</span> · cumulative {hoverPoint.pct}%
+          {hoverPoint.dailyPct != null && <> · day {hoverPoint.dailyPct}%</>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function BadgePopup({ badge, onDismiss }: {
   badge: { icon: string; label: string; streak: number } | null;
   onDismiss: () => void;
