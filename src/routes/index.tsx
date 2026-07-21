@@ -1837,16 +1837,20 @@ function WrappedCard({ wrapped, stats }: { wrapped: { mostSkipped: string; close
     else await navigator.clipboard?.writeText(text);
   };
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-primary/35 p-5 shadow-2xl" style={{ background: "linear-gradient(135deg, color-mix(in oklab, var(--neon-cyan) 28%, var(--background)), color-mix(in oklab, var(--neon-magenta) 30%, var(--background)))" }}>
-      <div className="text-[10px] font-black uppercase tracking-[0.25em] text-primary-foreground/70">Semester Wrapped</div>
-      <div className="mt-3 text-5xl font-black text-primary-foreground">{stats.attendancePct}%</div>
-      <div className="text-sm font-semibold text-primary-foreground/80">Final attendance vibe</div>
-      <div className="mt-5 grid gap-3 text-primary-foreground">
-        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Most skipped day</div><div className="font-bold">{wrapped.mostSkipped}</div></div>
-        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Closest call with 75%</div><div className="font-bold">{wrapped.closestCall}</div></div>
-        <div className="rounded-2xl bg-background/20 p-3"><div className="text-[10px] uppercase opacity-70">Academic hours logged</div><div className="font-bold">{wrapped.hours} hrs</div></div>
+    <div className="relative overflow-hidden rounded-3xl border border-primary/40 p-5 shadow-2xl"
+      style={{ background: "linear-gradient(135deg, oklch(0.22 0.08 260), oklch(0.16 0.06 300) 60%, oklch(0.12 0.04 330))" }}>
+      <div className="pointer-events-none absolute inset-0 opacity-60" style={{ background: "radial-gradient(circle at 15% 10%, color-mix(in oklab, var(--neon-cyan) 30%, transparent), transparent 55%), radial-gradient(circle at 85% 90%, color-mix(in oklab, var(--neon-magenta) 30%, transparent), transparent 55%)" }} />
+      <div className="relative">
+        <div className="text-[10px] font-black uppercase tracking-[0.25em] text-neon-cyan" style={{ color: "var(--neon-cyan)" }}>Semester Wrapped</div>
+        <div className="mt-3 text-5xl font-black text-white">{stats.attendancePct}%</div>
+        <div className="text-sm font-semibold text-white/70">Final attendance vibe</div>
+        <div className="mt-5 grid gap-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3"><div className="text-[10px] uppercase tracking-widest text-white/50">Most skipped day</div><div className="mt-1 font-bold text-white">{wrapped.mostSkipped}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3"><div className="text-[10px] uppercase tracking-widest text-white/50">Closest call with 75%</div><div className="mt-1 font-bold text-white">{wrapped.closestCall}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3"><div className="text-[10px] uppercase tracking-widest text-white/50">Academic hours logged</div><div className="mt-1 font-bold text-white">{wrapped.hours} hrs</div></div>
+        </div>
+        <button onClick={share} className="mt-5 rounded-full px-4 py-2 text-xs font-black text-primary-foreground shadow-lg transition hover:opacity-90" style={{ background: "var(--gradient-primary)" }}>Share Wrapped</button>
       </div>
-      <button onClick={share} className="mt-5 rounded-full bg-background/80 px-4 py-2 text-xs font-black text-foreground">Share Wrapped</button>
     </div>
   );
 }
