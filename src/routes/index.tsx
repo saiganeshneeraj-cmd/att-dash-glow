@@ -577,6 +577,17 @@ function AttendancePage() {
   const roadmap = useMemo(() => buildRoadmap(detailed, attended, total), [detailed, attended, total]);
   const wrapped = useMemo(() => computeWrapped(detailed), [detailed]);
 
+  // Deep-link into DetailedTracker's inner tab from quick-nav buttons
+  const [detailedTab, setDetailedTab] = useState<"setup" | "log" | "bulk">("setup");
+  const jumpToDetailed = useCallback((tab: "setup" | "log" | "bulk") => {
+    setDetailedTab(tab);
+    setState((s) => (s.mode === "detailed" ? s : { ...s, mode: "detailed" }));
+    requestAnimationFrame(() => {
+      const el = document.getElementById("detailed-tracker-section");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
   const [badgePopup, setBadgePopup] = useState<{ icon: string; label: string; streak: number } | null>(null);
   useEffect(() => {
     if (!hydrated || activeStreak <= 0) return;
