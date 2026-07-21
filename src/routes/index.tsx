@@ -1924,6 +1924,7 @@ function NumberField({ label, value, onChange, max }: { label: string; value: nu
 function DetailedTracker({
   detailed, setDetailed, applyPresetById, allPresets, customPresets,
   onSaveCustomPreset, onDeleteCustomPreset, captureUndo,
+  tab: tabProp, onTabChange,
 }: {
   detailed: DetailedData;
   setDetailed: (u: DetailedData | ((d: DetailedData) => DetailedData)) => void;
@@ -1933,8 +1934,12 @@ function DetailedTracker({
   onSaveCustomPreset: (label: string) => void;
   onDeleteCustomPreset: (id: string) => void;
   captureUndo: (label: string) => void;
+  tab?: "setup" | "log" | "bulk";
+  onTabChange?: (t: "setup" | "log" | "bulk") => void;
 }) {
-  const [tab, setTab] = useState<"setup" | "log" | "bulk">("setup");
+  const [tabLocal, setTabLocal] = useState<"setup" | "log" | "bulk">("setup");
+  const tab = tabProp ?? tabLocal;
+  const setTab = (t: "setup" | "log" | "bulk") => { setTabLocal(t); onTabChange?.(t); };
 
   return (
     <div className="glass-neon overflow-hidden p-4 sm:p-6">
