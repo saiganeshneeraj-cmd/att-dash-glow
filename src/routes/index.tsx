@@ -205,6 +205,42 @@ function computeDetailedTotals(detailed: DetailedData, untilISO = todayISO()) {
   return { total, attended, missed, cancelled };
 }
 
+function computeTrend(detailed: DetailedData, days = 30) {
+  const holidays = new Set(detailed.holidays);
+  const start = new Date(detailed.startDate + "T00:00:00");
+  const today = new Date(todayISO() + "T00:00:00");
+  if (isNaN(start.getTime()) || today < start) return [] as { iso: string; label: string; pct: number; dailyPct: number | null }[];
+  const slots = activeSlotsByDay(detailed.timetable);
+  const states = detailed.states;
+  const points: { iso: string; label: string; pct: number; dailyPct: number | null }[] = [];
+  let cumAtt = 0, cumTot = 0;
+  const cur = new Date(start);
+  while (cur <= today) {
+    const dayKey = DOW_TO_DAY[cur.getDay()];
+    const iso = isoLocal(cur);
+    let dAtt = 0, dTot = 0;
+    if (dayKey && !holidays.has(iso)) {
+      const idxs = slots[dayKey];
+      for (let i = 0; i < idxs.length; i++) {
+        const st = states[`${iso}__${idxs[i]}`] ?? "attended";
+        if (st === "cancelled") continue;
+        dTot += 1;
+        if (st === "attended") dAtt += 1;
+      }
+    }
+    cumAtt += dAtt; cumTot += dTot;
+    points.push({
+      iso,
+      label: `${MONTHS[cur.getMonth()]} ${cur.getDate()}`,
+      pct: cumTot > 0 ? Math.round((cumAtt / cumTot) * 1000) / 10 : 0,
+      dailyPct: dTot > 0 ? Math.round((dAtt / dTot) * 1000) / 10 : null,
+    });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return points.slice(-days);
+}
+
+
 function pctFor(attended: number, total: number) {
   return total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
 }
