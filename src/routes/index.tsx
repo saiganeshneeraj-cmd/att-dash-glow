@@ -2309,6 +2309,7 @@ function UndoToast({ toast, onUndo, onDismiss }: {
    ============================================================ */
 type HistoryEntry = {
   iso: string;
+  localIso: string;
   dateLabel: string;
   day: DayKey;
   periodIdx: number;
@@ -2316,6 +2317,9 @@ type HistoryEntry = {
   subject: string;
   status: "attended" | "missed" | "cancelled" | "holiday";
 };
+
+const toLocalIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 function HistoryView({ detailed }: { detailed: DetailedData }) {
   const [from, setFrom] = useState<string>(detailed.startDate);
@@ -2337,6 +2341,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
     const cur = new Date(s);
     while (cur <= e) {
       const iso = cur.toISOString().slice(0, 10);
+      const localIso = toLocalIso(cur);
       const day = DOW_TO_DAY[cur.getDay()];
       if (day) {
         const row = detailed.timetable[day] || [];
@@ -2346,7 +2351,7 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
           const key = `${iso}__${idx}`;
           const st = isHoliday ? "holiday" : (detailed.states[key] ?? "attended");
           arr.push({
-            iso, dateLabel: formatShortDate(cur), day,
+            iso, localIso, dateLabel: formatShortDate(cur), day,
             periodIdx: idx, periodLabel: detailed.periods[idx] ?? `P${idx + 1}`,
             subject: subj, status: st as HistoryEntry["status"],
           });
@@ -2365,8 +2370,10 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
 
   const filtered = useMemo(() => {
     return allEntries.filter((e) => {
-      if (from && e.iso < from) return false;
-      if (to && e.iso > to) return false;
+      // Compare against localIso so a "from" date picked in the browser (literal
+      // calendar day) still matches entries even when toISOString() shifts by TZ.
+      if (from && e.localIso < from) return false;
+      if (to && e.localIso > to) return false;
       if (statusFilter !== "all" && e.status !== statusFilter) return false;
       if (subjectFilter !== "all" && e.subject !== subjectFilter) return false;
       return true;
