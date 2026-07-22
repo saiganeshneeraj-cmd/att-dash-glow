@@ -17,6 +17,7 @@ import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
   scheduleDaily, scheduleInterval, isNotificationCapable, ensureServiceWorker, type NotifyPrefs,
 } from "@/lib/notifications";
+import { toast } from "sonner";
 // @ts-expect-error - JSX component without types
 import SoftAurora from "@/components/SoftAurora.jsx";
 
