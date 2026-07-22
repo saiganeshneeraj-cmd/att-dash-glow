@@ -1990,7 +1990,23 @@ function BunkSimulator({ detailed, attended, total }: { detailed: DetailedData; 
             <h2 className="text-xl font-bold text-foreground sm:text-2xl" style={{ fontFamily: "var(--font-display)" }}>
               Time-Machine Scrubber
             </h2>
-            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Drag the slider forward, pick a policy, and see exactly when your attendance risk hits.</p>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">A friendly forecaster: pick how many days ahead and a skipping plan — we predict your attendance.</p>
+          </div>
+        </div>
+
+        {/* Beginner-friendly explainer */}
+        <div className="mt-4 grid gap-2 rounded-2xl border border-primary/25 bg-primary/5 p-4 sm:grid-cols-3">
+          <div className="flex items-start gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/20 text-[11px] font-black text-primary">1</span>
+            <div className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Drag the slider</span> to look ahead 1–60 days.</div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/20 text-[11px] font-black text-primary">2</span>
+            <div className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Pick a plan</span> (skip Fridays, everything, etc.).</div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/20 text-[11px] font-black text-primary">3</span>
+            <div className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Read the ring</span> — green = safe, red = below 75%.</div>
           </div>
         </div>
 
