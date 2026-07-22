@@ -2866,42 +2866,46 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
     if (!printRef.current) return;
     setExporting(true);
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"), import("jspdf"),
+      const [{ toPng }, { default: jsPDF }] = await Promise.all([
+        import("html-to-image"), import("jspdf"),
       ]);
       const node = printRef.current;
-      const canvas = await html2canvas(node, {
-        backgroundColor: "#0a0a1a", scale: 2, useCORS: true, logging: false,
+      const dataUrl = await toPng(node, {
+        cacheBust: true, pixelRatio: 2, backgroundColor: "#0a0a1a",
+        style: { transform: "none" },
       });
-      const img = canvas.toDataURL("image/jpeg", 0.92);
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error("image load failed")); });
       const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
       const pw = pdf.internal.pageSize.getWidth();
       const ph = pdf.internal.pageSize.getHeight();
-      const ratio = canvas.width / canvas.height;
+      const ratio = img.width / img.height;
       const imgW = pw - 24, imgH = imgW / ratio;
-      let y = 12, remaining = imgH;
       if (imgH <= ph - 24) {
-        pdf.addImage(img, "JPEG", 12, y, imgW, imgH);
+        pdf.addImage(dataUrl, "PNG", 12, 12, imgW, imgH);
       } else {
-        // Slice tall canvas across pages
-        const pxPerPt = canvas.width / imgW;
+        const pxPerPt = img.width / imgW;
         const pageContentH = ph - 24;
         const sliceCanvasH = Math.floor(pageContentH * pxPerPt);
         let sy = 0;
-        while (sy < canvas.height) {
-          const sh = Math.min(sliceCanvasH, canvas.height - sy);
+        while (sy < img.height) {
+          const sh = Math.min(sliceCanvasH, img.height - sy);
           const slice = document.createElement("canvas");
-          slice.width = canvas.width; slice.height = sh;
-          slice.getContext("2d")!.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+          slice.width = img.width; slice.height = sh;
+          slice.getContext("2d")!.drawImage(img, 0, sy, img.width, sh, 0, 0, img.width, sh);
           const sliceImg = slice.toDataURL("image/jpeg", 0.92);
           const sHpt = sh / pxPerPt;
           if (sy > 0) pdf.addPage();
           pdf.addImage(sliceImg, "JPEG", 12, 12, imgW, sHpt);
           sy += sh;
-          remaining -= sHpt;
         }
       }
       pdf.save(`attendance-history-${todayISO()}.pdf`);
+      toast.success("PDF downloaded");
+    } catch (err) {
+      console.error("PDF export failed", err);
+      toast.error("Couldn't export PDF. Try JPG or reload the page.");
     } finally { setExporting(false); }
   }, []);
 
@@ -2909,18 +2913,18 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
     if (!printRef.current) return;
     setExporting(true);
     try {
-      const { default: html2canvas } = await import("html2canvas");
-      const canvas = await html2canvas(printRef.current, {
-        backgroundColor: "#0a0a1a", scale: 2, useCORS: true, logging: false,
+      const { toJpeg } = await import("html-to-image");
+      const dataUrl = await toJpeg(printRef.current, {
+        cacheBust: true, pixelRatio: 2, quality: 0.95, backgroundColor: "#0a0a1a",
+        style: { transform: "none" },
       });
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = `attendance-history-${todayISO()}.jpg`;
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(url);
-      }, "image/jpeg", 0.95);
+      const a = document.createElement("a");
+      a.href = dataUrl; a.download = `attendance-history-${todayISO()}.jpg`;
+      document.body.appendChild(a); a.click(); a.remove();
+      toast.success("Image downloaded");
+    } catch (err) {
+      console.error("JPG export failed", err);
+      toast.error("Couldn't export image. Please try again.");
     } finally { setExporting(false); }
   }, []);
 
