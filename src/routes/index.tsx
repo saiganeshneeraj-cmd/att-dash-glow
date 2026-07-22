@@ -3142,6 +3142,22 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
           Generated {new Date().toLocaleString()} · Threshold 75%
         </div>
       </div>
+
+      {/* Floating download FAB — always reachable without scrolling */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:justify-end sm:pr-6">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/70 bg-background/85 p-1.5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          <span className="hidden pl-3 pr-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground sm:inline">Download</span>
+          <button onClick={exportJpg} disabled={exporting}
+            className="press-card rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20 disabled:opacity-50">
+            {exporting ? "…" : "↓ JPG"}
+          </button>
+          <button onClick={exportPdf} disabled={exporting}
+            className="press-card rounded-full px-3 py-1.5 text-xs font-bold text-primary-foreground transition disabled:opacity-50"
+            style={{ background: "var(--gradient-primary)", boxShadow: "0 0 22px -6px var(--neon-magenta)" }}>
+            {exporting ? "Exporting…" : "↓ PDF"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
