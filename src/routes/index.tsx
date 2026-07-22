@@ -2144,7 +2144,7 @@ function DetailedTracker({
   const setTab = (t: "setup" | "log" | "bulk") => { setTabLocal(t); onTabChange?.(t); };
 
   return (
-    <div className="glass-neon overflow-hidden p-4 sm:p-6">
+    <div className="glass-neon p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xl font-semibold">Weekly Timetable</h2>
