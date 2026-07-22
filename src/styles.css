@@ -419,3 +419,7 @@ body { animation: bg-shift 24s ease-in-out infinite; }
 }
 
 
+/* Hide horizontal scrollbar on nav pills */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+

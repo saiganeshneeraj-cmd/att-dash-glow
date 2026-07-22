@@ -17,6 +17,7 @@ import {
   loadNotifyPrefs, saveNotifyPrefs, requestPermission, fireNotification,
   scheduleDaily, scheduleInterval, isNotificationCapable, ensureServiceWorker, type NotifyPrefs,
 } from "@/lib/notifications";
+import { toast } from "sonner";
 // @ts-expect-error - JSX component without types
 import SoftAurora from "@/components/SoftAurora.jsx";
 
@@ -1067,11 +1068,11 @@ function Header({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <div className="inline-flex flex-wrap rounded-full border border-border bg-card p-1 backdrop-blur-md">
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+        <div className="no-scrollbar inline-flex w-full max-w-full overflow-x-auto whitespace-nowrap rounded-full border border-border bg-card p-1 backdrop-blur-md sm:w-auto">
           {(["detailed", "quick", "simulator", "history", "rooms"] as Mode[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
-              className={`rounded-full px-3 py-2 text-xs font-medium transition-all sm:px-4 sm:text-sm ${
+              className={`shrink-0 rounded-full px-3 py-2 text-xs font-medium transition-all sm:px-4 sm:text-sm ${
                 mode === m ? "text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground"
               }`}
               style={mode === m ? { background: "var(--gradient-primary)" } : undefined}>
@@ -1989,7 +1990,23 @@ function BunkSimulator({ detailed, attended, total }: { detailed: DetailedData; 
             <h2 className="text-xl font-bold text-foreground sm:text-2xl" style={{ fontFamily: "var(--font-display)" }}>
               Time-Machine Scrubber
             </h2>
-            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Drag the slider forward, pick a policy, and see exactly when your attendance risk hits.</p>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">A friendly forecaster: pick how many days ahead and a skipping plan — we predict your attendance.</p>
+          </div>
+        </div>
+
+        {/* Beginner-friendly explainer */}
+        <div className="mt-4 grid gap-2 rounded-2xl border border-primary/25 bg-primary/5 p-4 sm:grid-cols-3">
+          <div className="flex items-start gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/20 text-[11px] font-black text-primary">1</span>
+            <div className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Drag the slider</span> to look ahead 1–60 days.</div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/20 text-[11px] font-black text-primary">2</span>
+            <div className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Pick a plan</span> (skip Fridays, everything, etc.).</div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/20 text-[11px] font-black text-primary">3</span>
+            <div className="text-[11px] text-muted-foreground"><span className="font-semibold text-foreground">Read the ring</span> — green = safe, red = below 75%.</div>
           </div>
         </div>
 
@@ -2127,7 +2144,7 @@ function DetailedTracker({
   const setTab = (t: "setup" | "log" | "bulk") => { setTabLocal(t); onTabChange?.(t); };
 
   return (
-    <div className="glass-neon overflow-hidden p-4 sm:p-6">
+    <div className="glass-neon p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xl font-semibold">Weekly Timetable</h2>
@@ -2866,42 +2883,46 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
     if (!printRef.current) return;
     setExporting(true);
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"), import("jspdf"),
+      const [{ toPng }, { default: jsPDF }] = await Promise.all([
+        import("html-to-image"), import("jspdf"),
       ]);
       const node = printRef.current;
-      const canvas = await html2canvas(node, {
-        backgroundColor: "#0a0a1a", scale: 2, useCORS: true, logging: false,
+      const dataUrl = await toPng(node, {
+        cacheBust: true, pixelRatio: 2, backgroundColor: "#0a0a1a",
+        style: { transform: "none" },
       });
-      const img = canvas.toDataURL("image/jpeg", 0.92);
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error("image load failed")); });
       const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
       const pw = pdf.internal.pageSize.getWidth();
       const ph = pdf.internal.pageSize.getHeight();
-      const ratio = canvas.width / canvas.height;
+      const ratio = img.width / img.height;
       const imgW = pw - 24, imgH = imgW / ratio;
-      let y = 12, remaining = imgH;
       if (imgH <= ph - 24) {
-        pdf.addImage(img, "JPEG", 12, y, imgW, imgH);
+        pdf.addImage(dataUrl, "PNG", 12, 12, imgW, imgH);
       } else {
-        // Slice tall canvas across pages
-        const pxPerPt = canvas.width / imgW;
+        const pxPerPt = img.width / imgW;
         const pageContentH = ph - 24;
         const sliceCanvasH = Math.floor(pageContentH * pxPerPt);
         let sy = 0;
-        while (sy < canvas.height) {
-          const sh = Math.min(sliceCanvasH, canvas.height - sy);
+        while (sy < img.height) {
+          const sh = Math.min(sliceCanvasH, img.height - sy);
           const slice = document.createElement("canvas");
-          slice.width = canvas.width; slice.height = sh;
-          slice.getContext("2d")!.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+          slice.width = img.width; slice.height = sh;
+          slice.getContext("2d")!.drawImage(img, 0, sy, img.width, sh, 0, 0, img.width, sh);
           const sliceImg = slice.toDataURL("image/jpeg", 0.92);
           const sHpt = sh / pxPerPt;
           if (sy > 0) pdf.addPage();
           pdf.addImage(sliceImg, "JPEG", 12, 12, imgW, sHpt);
           sy += sh;
-          remaining -= sHpt;
         }
       }
       pdf.save(`attendance-history-${todayISO()}.pdf`);
+      toast.success("PDF downloaded");
+    } catch (err) {
+      console.error("PDF export failed", err);
+      toast.error("Couldn't export PDF. Try JPG or reload the page.");
     } finally { setExporting(false); }
   }, []);
 
@@ -2909,18 +2930,18 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
     if (!printRef.current) return;
     setExporting(true);
     try {
-      const { default: html2canvas } = await import("html2canvas");
-      const canvas = await html2canvas(printRef.current, {
-        backgroundColor: "#0a0a1a", scale: 2, useCORS: true, logging: false,
+      const { toJpeg } = await import("html-to-image");
+      const dataUrl = await toJpeg(printRef.current, {
+        cacheBust: true, pixelRatio: 2, quality: 0.95, backgroundColor: "#0a0a1a",
+        style: { transform: "none" },
       });
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = `attendance-history-${todayISO()}.jpg`;
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(url);
-      }, "image/jpeg", 0.95);
+      const a = document.createElement("a");
+      a.href = dataUrl; a.download = `attendance-history-${todayISO()}.jpg`;
+      document.body.appendChild(a); a.click(); a.remove();
+      toast.success("Image downloaded");
+    } catch (err) {
+      console.error("JPG export failed", err);
+      toast.error("Couldn't export image. Please try again.");
     } finally { setExporting(false); }
   }, []);
 
@@ -3135,6 +3156,22 @@ function HistoryView({ detailed }: { detailed: DetailedData }) {
 
         <div className="mt-4 text-[10px] text-muted-foreground">
           Generated {new Date().toLocaleString()} · Threshold 75%
+        </div>
+      </div>
+
+      {/* Floating download FAB — always reachable without scrolling */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:justify-end sm:pr-6">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/70 bg-background/85 p-1.5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          <span className="hidden pl-3 pr-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground sm:inline">Download</span>
+          <button onClick={exportJpg} disabled={exporting}
+            className="press-card rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition hover:bg-primary/20 disabled:opacity-50">
+            {exporting ? "…" : "↓ JPG"}
+          </button>
+          <button onClick={exportPdf} disabled={exporting}
+            className="press-card rounded-full px-3 py-1.5 text-xs font-bold text-primary-foreground transition disabled:opacity-50"
+            style={{ background: "var(--gradient-primary)", boxShadow: "0 0 22px -6px var(--neon-magenta)" }}>
+            {exporting ? "Exporting…" : "↓ PDF"}
+          </button>
         </div>
       </div>
     </div>
