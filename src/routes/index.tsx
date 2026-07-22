@@ -1067,11 +1067,11 @@ function Header({
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <div className="inline-flex flex-wrap rounded-full border border-border bg-card p-1 backdrop-blur-md">
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
+        <div className="no-scrollbar inline-flex w-full max-w-full overflow-x-auto whitespace-nowrap rounded-full border border-border bg-card p-1 backdrop-blur-md sm:w-auto">
           {(["detailed", "quick", "simulator", "history", "rooms"] as Mode[]).map((m) => (
             <button key={m} onClick={() => setMode(m)}
-              className={`rounded-full px-3 py-2 text-xs font-medium transition-all sm:px-4 sm:text-sm ${
+              className={`shrink-0 rounded-full px-3 py-2 text-xs font-medium transition-all sm:px-4 sm:text-sm ${
                 mode === m ? "text-primary-foreground shadow-md" : "text-muted-foreground hover:text-foreground"
               }`}
               style={mode === m ? { background: "var(--gradient-primary)" } : undefined}>
